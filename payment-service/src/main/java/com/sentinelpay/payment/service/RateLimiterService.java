@@ -1,6 +1,7 @@
 package com.sentinelpay.payment.service;
 
 import com.sentinelpay.payment.exception.RateLimitExceededException;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -12,25 +13,18 @@ import java.time.Instant;
 import java.util.List;
 
 /**
- * Redis sliding-window rate limiter.
+ * Redis sliding-window rate limiter with Resilience4j circuit breaker.
  *
- * <p>Uses a sorted set per key. On each call:
- * <ol>
- *   <li>Removes entries older than the window.</li>
- *   <li>Counts remaining entries.</li>
- *   <li>If under the limit, adds the current timestamp and returns allowed.</li>
- *   <li>Otherwise throws {@link RateLimitExceededException}.</li>
- * </ol>
- * All three steps run atomically in a single Lua script.
+ * <p>If Redis is unavailable the circuit opens and the fallback {@code failOpen}
+ * allows the request through rather than blocking legitimate payments.
  */
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class RateLimiterService {
 
-    /** Max payment initiations per wallet per minute. */
-    private static final int MAX_PAYMENTS_PER_MINUTE = 20;
-    private static final long WINDOW_MS = 60_000L;
+    private static final int  MAX_PAYMENTS_PER_MINUTE = 20;
+    private static final long WINDOW_MS               = 60_000L;
 
     private final RedisTemplate<String, String> redisTemplate;
 
@@ -39,36 +33,33 @@ public class RateLimiterService {
 
     /**
      * Checks and records a payment attempt for the given sender wallet.
-     * Throws {@link RateLimitExceededException} if the limit is exceeded.
      *
-     * @param senderWalletId wallet ID used as the rate-limit key
+     * @throws RateLimitExceededException if the limit is exceeded
      */
+    @CircuitBreaker(name = "redis", fallbackMethod = "failOpen")
     public void checkPaymentRateLimit(String senderWalletId) {
-        String key = "rate_limit:payments:" + senderWalletId;
-        checkLimit(key, WINDOW_MS, MAX_PAYMENTS_PER_MINUTE,
-                "Payment rate limit exceeded: max " + MAX_PAYMENTS_PER_MINUTE
-                        + " payments per minute for wallet " + senderWalletId);
+        String key   = "rate_limit:payments:" + senderWalletId;
+        long   nowMs = Instant.now().toEpochMilli();
+
+        Long result = redisTemplate.execute(
+                rateLimiterScript,
+                List.of(key),
+                String.valueOf(nowMs),
+                String.valueOf(WINDOW_MS),
+                String.valueOf(MAX_PAYMENTS_PER_MINUTE)
+        );
+
+        if (result == null || result == 0L) {
+            log.warn("Rate limit exceeded for wallet={}", senderWalletId);
+            throw new RateLimitExceededException(
+                    "Payment rate limit exceeded: max " + MAX_PAYMENTS_PER_MINUTE
+                            + " payments per minute.");
+        }
     }
 
-    private void checkLimit(String key, long windowMs, int maxRequests, String errorMessage) {
-        try {
-            long nowMs = Instant.now().toEpochMilli();
-            Long result = redisTemplate.execute(
-                    rateLimiterScript,
-                    List.of(key),
-                    String.valueOf(nowMs),
-                    String.valueOf(windowMs),
-                    String.valueOf(maxRequests)
-            );
-            if (result == null || result == 0L) {
-                log.warn("Rate limit hit for key={}", key);
-                throw new RateLimitExceededException(errorMessage);
-            }
-        } catch (RateLimitExceededException e) {
-            throw e;
-        } catch (Exception e) {
-            // Redis is unavailable — fail open (log, don't block the payment)
-            log.error("Rate limiter Redis error for key={}: {}", key, e.getMessage());
-        }
+    /** Fallback: fail open — Redis is down, allow the payment through. */
+    @SuppressWarnings("unused")
+    public void failOpen(String senderWalletId, Throwable t) {
+        log.error("Rate limiter circuit open for wallet={} — failing open: {}", senderWalletId, t.getMessage());
     }
 }

@@ -5,22 +5,30 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
 
 /**
- * Represents a payment transaction between two wallets.
- * Idempotency is enforced via the unique idempotency_key constraint.
+ * Represents a payment transaction.
+ *
+ * <p>Wallet FK nullability by type:
+ * <ul>
+ *   <li>TRANSFER / REVERSAL — both sender and receiver are non-null</li>
+ *   <li>DEPOSIT             — sender is null (external source), receiver is non-null</li>
+ *   <li>WITHDRAWAL          — sender is non-null, receiver is null (external destination)</li>
+ * </ul>
  */
 @Entity
 @Table(name = "transactions", indexes = {
         @Index(name = "idx_txn_idempotency_key", columnList = "idempotency_key", unique = true),
-        @Index(name = "idx_txn_sender_wallet", columnList = "sender_wallet_id"),
-        @Index(name = "idx_txn_receiver_wallet", columnList = "receiver_wallet_id"),
-        @Index(name = "idx_txn_status", columnList = "status"),
-        @Index(name = "idx_txn_created_at", columnList = "created_at")
+        @Index(name = "idx_txn_sender_wallet",   columnList = "sender_wallet_id"),
+        @Index(name = "idx_txn_receiver_wallet",  columnList = "receiver_wallet_id"),
+        @Index(name = "idx_txn_status",           columnList = "status"),
+        @Index(name = "idx_txn_created_at",       columnList = "created_at")
 })
 @Data
 @Builder
@@ -33,18 +41,17 @@ public class Transaction {
     @Column(name = "id", updatable = false, nullable = false)
     private UUID id;
 
-    /**
-     * Client-supplied idempotency key — duplicate requests return the original response.
-     */
     @Column(name = "idempotency_key", nullable = false, unique = true, length = 128)
     private String idempotencyKey;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "sender_wallet_id", nullable = false)
+    /** Null for DEPOSIT transactions (money arrives from outside the system). */
+    @ManyToOne(fetch = FetchType.LAZY, optional = true)
+    @JoinColumn(name = "sender_wallet_id", nullable = true)
     private Wallet senderWallet;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "receiver_wallet_id", nullable = false)
+    /** Null for WITHDRAWAL transactions (money leaves the system). */
+    @ManyToOne(fetch = FetchType.LAZY, optional = true)
+    @JoinColumn(name = "receiver_wallet_id", nullable = true)
     private Wallet receiverWallet;
 
     @Column(name = "amount", nullable = false, precision = 19, scale = 4)
@@ -65,16 +72,13 @@ public class Transaction {
     @Column(name = "description", length = 500)
     private String description;
 
-    /**
-     * Reference to the original transaction when this is a reversal.
-     */
+    /** Reference to the original transaction for REVERSAL type. */
     @Column(name = "reference_transaction_id")
     private UUID referenceTransactionId;
 
-    /**
-     * Metadata JSON blob for fraud scoring, saga state, etc.
-     */
+    /** JSON blob: fraud scores, exchange rates, saga state, etc. */
     @Column(name = "metadata", columnDefinition = "jsonb")
+    @JdbcTypeCode(SqlTypes.JSON)
     private String metadata;
 
     @Column(name = "failure_reason", length = 500)
@@ -97,18 +101,10 @@ public class Transaction {
     }
 
     public enum TransactionStatus {
-        PENDING,
-        PROCESSING,
-        COMPLETED,
-        FAILED,
-        REVERSED,
-        SAGA_COMPENSATING
+        PENDING, PROCESSING, COMPLETED, FAILED, REVERSED, SAGA_COMPENSATING
     }
 
     public enum TransactionType {
-        TRANSFER,
-        DEPOSIT,
-        WITHDRAWAL,
-        REVERSAL
+        TRANSFER, DEPOSIT, WITHDRAWAL, REVERSAL
     }
 }

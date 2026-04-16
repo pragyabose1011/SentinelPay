@@ -39,8 +39,8 @@ import java.util.List;
 @Slf4j
 public class FraudScoringService {
 
-    private static final BigDecimal HIGH_AMOUNT_THRESHOLD = new BigDecimal("10000");
-    private static final BigDecimal NEW_ACCOUNT_AMOUNT_THRESHOLD = new BigDecimal("1000");
+    private static final BigDecimal HIGH_AMOUNT_THRESHOLD = new BigDecimal("1000000");      // ₹10,00,000 (10 lakhs)
+    private static final BigDecimal NEW_ACCOUNT_AMOUNT_THRESHOLD = new BigDecimal("100000"); // ₹1,00,000 (1 lakh)
     private static final int HIGH_AMOUNT_SCORE = 40;
     private static final int VELOCITY_SCORE = 30;
     private static final int NEW_ACCOUNT_SCORE = 30;

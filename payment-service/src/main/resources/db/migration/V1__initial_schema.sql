@@ -39,7 +39,7 @@ COMMENT ON COLUMN users.kyc_verified IS 'KYC verification flag — required for 
 CREATE TABLE wallets (
     id         UUID         NOT NULL DEFAULT gen_random_uuid(),
     user_id    UUID         NOT NULL,
-    currency   CHAR(3)      NOT NULL,                        -- ISO 4217
+    currency   VARCHAR(3)   NOT NULL,                        -- ISO 4217
     balance    NUMERIC(19, 4) NOT NULL DEFAULT 0.0000
                    CHECK (balance >= 0),
     status     VARCHAR(20)  NOT NULL DEFAULT 'ACTIVE'
@@ -71,7 +71,7 @@ CREATE TABLE transactions (
     sender_wallet_id         UUID         NOT NULL,
     receiver_wallet_id       UUID         NOT NULL,
     amount                   NUMERIC(19, 4) NOT NULL CHECK (amount > 0),
-    currency                 CHAR(3)      NOT NULL,
+    currency                 VARCHAR(3)   NOT NULL,
     status                   VARCHAR(20)  NOT NULL DEFAULT 'PENDING'
                                  CHECK (status IN (
                                      'PENDING', 'PROCESSING', 'COMPLETED',

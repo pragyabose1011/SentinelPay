@@ -1,22 +1,28 @@
 package com.sentinelpay.payment.controller;
 
 import com.sentinelpay.payment.domain.Wallet;
+import com.sentinelpay.payment.dto.WalletRequest;
 import com.sentinelpay.payment.dto.WalletResponse;
-import com.sentinelpay.payment.repository.WalletRepository;
+import com.sentinelpay.payment.service.WalletService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
+import java.net.URI;
 import java.util.List;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 /**
- * REST API for wallet queries.
+ * REST API for wallet management.
  *
  * <pre>
- * GET  /api/v1/wallets/{walletId}          — get a single wallet
- * GET  /api/v1/wallets?userId=&lt;id&gt;         — list wallets for a user
+ * POST   /api/v1/wallets                        — create a wallet
+ * GET    /api/v1/wallets/{walletId}             — get a wallet by ID
+ * GET    /api/v1/wallets?userId={id}            — list wallets for a user
+ * PATCH  /api/v1/wallets/{walletId}/status      — freeze / close / reactivate
  * </pre>
  */
 @RestController
@@ -24,27 +30,37 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class WalletController {
 
-    private final WalletRepository walletRepository;
+    private final WalletService walletService;
 
-    /**
-     * Returns a specific wallet by its ID.
-     */
-    @GetMapping("/{walletId}")
-    public ResponseEntity<WalletResponse> getWallet(@PathVariable UUID walletId) {
-        Wallet wallet = walletRepository.findById(walletId)
-                .orElseThrow(() -> new IllegalArgumentException("Wallet not found: " + walletId));
-        return ResponseEntity.ok(WalletResponse.from(wallet));
+    @PostMapping
+    public ResponseEntity<WalletResponse> createWallet(
+            @Valid @RequestBody WalletRequest request,
+            @AuthenticationPrincipal UUID actorId) {
+        WalletResponse wallet = walletService.createWallet(request, actorId);
+        URI location = ServletUriComponentsBuilder.fromCurrentRequest()
+                .path("/{id}").buildAndExpand(wallet.getId()).toUri();
+        return ResponseEntity.created(location).body(wallet);
     }
 
-    /**
-     * Returns all wallets belonging to a user.
-     */
+    @GetMapping("/{walletId}")
+    public ResponseEntity<WalletResponse> getWallet(
+            @PathVariable UUID walletId,
+            @AuthenticationPrincipal UUID actorId) {
+        return ResponseEntity.ok(walletService.getWallet(walletId, actorId));
+    }
+
     @GetMapping
-    public ResponseEntity<List<WalletResponse>> listWalletsByUser(@RequestParam UUID userId) {
-        List<WalletResponse> wallets = walletRepository.findByUserId(userId)
-                .stream()
-                .map(WalletResponse::from)
-                .collect(Collectors.toList());
-        return ResponseEntity.ok(wallets);
+    public ResponseEntity<List<WalletResponse>> listWalletsByUser(
+            @RequestParam UUID userId,
+            @AuthenticationPrincipal UUID actorId) {
+        return ResponseEntity.ok(walletService.getWalletsByUser(userId, actorId));
+    }
+
+    @PatchMapping("/{walletId}/status")
+    public ResponseEntity<WalletResponse> updateStatus(
+            @PathVariable UUID walletId,
+            @RequestParam Wallet.WalletStatus status,
+            @AuthenticationPrincipal UUID actorId) {
+        return ResponseEntity.ok(walletService.updateStatus(walletId, status, actorId));
     }
 }

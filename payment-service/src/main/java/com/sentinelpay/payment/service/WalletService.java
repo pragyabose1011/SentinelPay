@@ -4,6 +4,7 @@ import com.sentinelpay.payment.domain.User;
 import com.sentinelpay.payment.domain.Wallet;
 import com.sentinelpay.payment.dto.WalletRequest;
 import com.sentinelpay.payment.dto.WalletResponse;
+import com.sentinelpay.payment.exception.ForbiddenException;
 import com.sentinelpay.payment.repository.UserRepository;
 import com.sentinelpay.payment.repository.WalletRepository;
 import lombok.RequiredArgsConstructor;
@@ -16,13 +17,13 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
- * Handles wallet creation and lifecycle management (freeze, close, reactivate).
+ * Handles wallet creation and lifecycle management.
  *
- * <p>Rules:
+ * <p>Ownership rules:
  * <ul>
- *   <li>One wallet per user per currency (enforced by DB unique constraint and validated here).</li>
- *   <li>User must be ACTIVE to create a wallet.</li>
- *   <li>CLOSED wallets cannot transition to any other state.</li>
+ *   <li>A user may only create wallets for themselves.</li>
+ *   <li>A user may only view their own wallets.</li>
+ *   <li>Only an ADMIN may freeze or close another user's wallet.</li>
  * </ul>
  */
 @Service
@@ -31,17 +32,13 @@ import java.util.stream.Collectors;
 public class WalletService {
 
     private final WalletRepository walletRepository;
-    private final UserRepository userRepository;
+    private final UserRepository   userRepository;
 
-    /**
-     * Creates a new wallet for the given user and currency.
-     *
-     * @param request validated wallet creation request
-     * @return the created wallet
-     * @throws IllegalArgumentException if user not found, not ACTIVE, or already has a wallet in that currency
-     */
     @Transactional
-    public WalletResponse createWallet(WalletRequest request) {
+    public WalletResponse createWallet(WalletRequest request, UUID actorId) {
+        if (!request.getUserId().equals(actorId)) {
+            assertAdmin(actorId);
+        }
         User user = userRepository.findById(request.getUserId())
                 .orElseThrow(() -> new IllegalArgumentException("User not found: " + request.getUserId()));
 
@@ -49,76 +46,67 @@ public class WalletService {
             throw new IllegalArgumentException(
                     "Cannot create wallet for a non-ACTIVE user. Status: " + user.getStatus());
         }
-
         String currency = request.getCurrency().toUpperCase();
         if (walletRepository.findByUserIdAndCurrency(user.getId(), currency).isPresent()) {
-            throw new IllegalArgumentException(
-                    "User already has a " + currency + " wallet.");
+            throw new IllegalArgumentException("User already has a " + currency + " wallet.");
         }
-
-        Wallet wallet = Wallet.builder()
-                .user(user)
-                .currency(currency)
-                .build();
+        Wallet wallet = Wallet.builder().user(user).currency(currency).build();
         wallet = walletRepository.save(wallet);
         log.info("Wallet created: id={} userId={} currency={}", wallet.getId(), user.getId(), currency);
         return WalletResponse.from(wallet);
     }
 
-    /**
-     * Returns a single wallet by ID.
-     *
-     * @throws IllegalArgumentException if no wallet exists with the given ID
-     */
     @Transactional(readOnly = true)
-    public WalletResponse getWallet(UUID walletId) {
-        Wallet wallet = walletRepository.findById(walletId)
-                .orElseThrow(() -> new IllegalArgumentException("Wallet not found: " + walletId));
+    public WalletResponse getWallet(UUID walletId, UUID actorId) {
+        Wallet wallet = findById(walletId);
+        assertOwnerOrAdmin(wallet, actorId);
         return WalletResponse.from(wallet);
     }
 
-    /**
-     * Returns all wallets belonging to a user.
-     */
     @Transactional(readOnly = true)
-    public List<WalletResponse> getWalletsByUser(UUID userId) {
-        return walletRepository.findByUserId(userId)
-                .stream()
+    public List<WalletResponse> getWalletsByUser(UUID userId, UUID actorId) {
+        if (!userId.equals(actorId)) assertAdmin(actorId);
+        return walletRepository.findByUserId(userId).stream()
                 .map(WalletResponse::from)
                 .collect(Collectors.toList());
     }
 
-    /**
-     * Updates the status of a wallet.
-     *
-     * <p>Allowed transitions:
-     * <ul>
-     *   <li>ACTIVE → FROZEN (freeze wallet, blocks new payments)</li>
-     *   <li>ACTIVE → CLOSED (permanent close)</li>
-     *   <li>FROZEN → ACTIVE (unfreeze)</li>
-     *   <li>FROZEN → CLOSED (close frozen wallet)</li>
-     *   <li>CLOSED → any (rejected — terminal state)</li>
-     * </ul>
-     *
-     * @param walletId  target wallet
-     * @param newStatus desired status
-     * @throws IllegalArgumentException on invalid transitions or unknown wallet
-     */
     @Transactional
-    public WalletResponse updateStatus(UUID walletId, Wallet.WalletStatus newStatus) {
-        Wallet wallet = walletRepository.findById(walletId)
-                .orElseThrow(() -> new IllegalArgumentException("Wallet not found: " + walletId));
-
+    public WalletResponse updateStatus(UUID walletId, Wallet.WalletStatus newStatus, UUID actorId) {
+        Wallet wallet = findById(walletId);
+        // Users may close their own wallet; only admins can freeze/close others
+        if (!wallet.getUser().getId().equals(actorId)) {
+            assertAdmin(actorId);
+        }
         if (wallet.getStatus() == Wallet.WalletStatus.CLOSED) {
             throw new IllegalArgumentException("Cannot change status of a CLOSED wallet.");
         }
-        if (wallet.getStatus() == newStatus) {
-            return WalletResponse.from(wallet);
-        }
-
+        if (wallet.getStatus() == newStatus) return WalletResponse.from(wallet);
         wallet.setStatus(newStatus);
         wallet = walletRepository.save(wallet);
-        log.info("Wallet status updated: walletId={} newStatus={}", walletId, newStatus);
+        log.info("Wallet status updated: walletId={} newStatus={} by actorId={}", walletId, newStatus, actorId);
         return WalletResponse.from(wallet);
+    }
+
+    // -------------------------------------------------------------------------
+    // Package-level helpers used by PaymentService and DepositWithdrawalService
+    // -------------------------------------------------------------------------
+
+    public Wallet findById(UUID walletId) {
+        return walletRepository.findById(walletId)
+                .orElseThrow(() -> new IllegalArgumentException("Wallet not found: " + walletId));
+    }
+
+    private void assertOwnerOrAdmin(Wallet wallet, UUID actorId) {
+        if (wallet.getUser().getId().equals(actorId)) return;
+        assertAdmin(actorId);
+    }
+
+    private void assertAdmin(UUID actorId) {
+        User actor = userRepository.findById(actorId)
+                .orElseThrow(() -> new IllegalArgumentException("User not found: " + actorId));
+        if (actor.getRole() != User.UserRole.ADMIN) {
+            throw new ForbiddenException("Access denied.");
+        }
     }
 }

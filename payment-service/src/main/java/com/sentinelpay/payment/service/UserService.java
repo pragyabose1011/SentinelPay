@@ -3,63 +3,51 @@ package com.sentinelpay.payment.service;
 import com.sentinelpay.payment.domain.User;
 import com.sentinelpay.payment.dto.UserRequest;
 import com.sentinelpay.payment.dto.UserResponse;
+import com.sentinelpay.payment.exception.ForbiddenException;
 import com.sentinelpay.payment.repository.UserRepository;
+import com.sentinelpay.payment.security.UserPrincipal;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.UUID;
 
 /**
- * Handles user registration, KYC verification, and account status management.
+ * Handles user lifecycle management.
+ * Implements {@link UserDetailsService} for Spring Security login.
  */
 @Service
 @RequiredArgsConstructor
 @Slf4j
-public class UserService {
+public class UserService implements UserDetailsService {
 
     private final UserRepository userRepository;
 
-    /**
-     * Registers a new user. Email must be globally unique.
-     *
-     * @param request validated registration payload
-     * @return the created user
-     * @throws IllegalArgumentException if the email is already in use
-     */
-    @Transactional
-    public UserResponse registerUser(UserRequest request) {
-        if (userRepository.existsByEmail(request.getEmail())) {
-            throw new IllegalArgumentException("Email is already registered: " + request.getEmail());
-        }
-        User user = User.builder()
-                .email(request.getEmail())
-                .fullName(request.getFullName())
-                .phoneNumber(request.getPhoneNumber())
-                .build();
-        user = userRepository.save(user);
-        log.info("User registered: id={} email={}", user.getId(), user.getEmail());
-        return UserResponse.from(user);
+    // -------------------------------------------------------------------------
+    // Spring Security UserDetailsService
+    // -------------------------------------------------------------------------
+
+    @Override
+    @Transactional(readOnly = true)
+    public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new UsernameNotFoundException("User not found: " + email));
+        return new UserPrincipal(user);
     }
 
-    /**
-     * Returns a user by ID.
-     *
-     * @throws IllegalArgumentException if no user exists with the given ID
-     */
+    // -------------------------------------------------------------------------
+    // Queries
+    // -------------------------------------------------------------------------
+
     @Transactional(readOnly = true)
     public UserResponse getUser(UUID userId) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new IllegalArgumentException("User not found: " + userId));
-        return UserResponse.from(user);
+        return UserResponse.from(findById(userId));
     }
 
-    /**
-     * Looks up a user by email address.
-     *
-     * @throws IllegalArgumentException if no user is registered with that email
-     */
     @Transactional(readOnly = true)
     public UserResponse getUserByEmail(String email) {
         User user = userRepository.findByEmail(email)
@@ -67,53 +55,75 @@ public class UserService {
         return UserResponse.from(user);
     }
 
-    /**
-     * Marks a user's KYC as verified. Idempotent — calling on an already-verified user is a no-op.
-     *
-     * @throws IllegalArgumentException if the user does not exist or is not ACTIVE
-     */
+    // -------------------------------------------------------------------------
+    // Mutations (admin-accessible via UserController)
+    // -------------------------------------------------------------------------
+
     @Transactional
-    public UserResponse verifyKyc(UUID userId) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new IllegalArgumentException("User not found: " + userId));
-        if (user.getStatus() != User.UserStatus.ACTIVE) {
-            throw new IllegalArgumentException(
-                    "KYC can only be verified for ACTIVE users. Current status: " + user.getStatus());
+    public UserResponse createUser(UserRequest request) {
+        if (userRepository.existsByEmail(request.getEmail())) {
+            throw new IllegalArgumentException("Email already registered: " + request.getEmail());
         }
-        user.setKycVerified(true);
+        User user = User.builder()
+                .email(request.getEmail())
+                .fullName(request.getFullName())
+                .phoneNumber(request.getPhoneNumber())
+                .build();
         user = userRepository.save(user);
-        log.info("KYC verified for userId={}", userId);
+        log.info("User created by admin: id={}", user.getId());
         return UserResponse.from(user);
     }
 
-    /**
-     * Updates the status of a user account (SUSPENDED or CLOSED).
-     *
-     * <p>Rules:
-     * <ul>
-     *   <li>ACTIVE → SUSPENDED or CLOSED</li>
-     *   <li>SUSPENDED → ACTIVE or CLOSED</li>
-     *   <li>CLOSED → terminal, no transitions allowed</li>
-     * </ul>
-     *
-     * @param userId    target user
-     * @param newStatus the desired new status
-     * @throws IllegalArgumentException on invalid transitions or unknown user
-     */
     @Transactional
-    public UserResponse updateStatus(UUID userId, User.UserStatus newStatus) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new IllegalArgumentException("User not found: " + userId));
+    public UserResponse verifyKyc(UUID targetUserId, UUID actorId) {
+        assertSelfOrAdmin(targetUserId, actorId);
+        User user = findById(targetUserId);
+        if (user.getStatus() != User.UserStatus.ACTIVE) {
+            throw new IllegalArgumentException(
+                    "KYC can only be verified for ACTIVE users. Status: " + user.getStatus());
+        }
+        user.setKycVerified(true);
+        user = userRepository.save(user);
+        log.info("KYC verified for userId={} by actorId={}", targetUserId, actorId);
+        return UserResponse.from(user);
+    }
 
+    @Transactional
+    public UserResponse updateStatus(UUID targetUserId, User.UserStatus newStatus, UUID actorId) {
+        // Only admins can change someone else's status; users can close their own account
+        if (!targetUserId.equals(actorId)) {
+            assertAdmin(actorId);
+        }
+        User user = findById(targetUserId);
         if (user.getStatus() == User.UserStatus.CLOSED) {
             throw new IllegalArgumentException("Cannot change status of a CLOSED account.");
         }
-        if (user.getStatus() == newStatus) {
-            return UserResponse.from(user);
-        }
+        if (user.getStatus() == newStatus) return UserResponse.from(user);
         user.setStatus(newStatus);
         user = userRepository.save(user);
-        log.info("User status updated: userId={} newStatus={}", userId, newStatus);
+        log.info("User status updated: userId={} newStatus={} by actorId={}", targetUserId, newStatus, actorId);
         return UserResponse.from(user);
+    }
+
+    // -------------------------------------------------------------------------
+    // Helpers
+    // -------------------------------------------------------------------------
+
+    public User findById(UUID userId) {
+        return userRepository.findById(userId)
+                .orElseThrow(() -> new IllegalArgumentException("User not found: " + userId));
+    }
+
+    /** Throws {@link ForbiddenException} unless the actor IS the target or is an ADMIN. */
+    public void assertSelfOrAdmin(UUID targetUserId, UUID actorId) {
+        if (targetUserId.equals(actorId)) return;
+        assertAdmin(actorId);
+    }
+
+    private void assertAdmin(UUID actorId) {
+        User actor = findById(actorId);
+        if (actor.getRole() != User.UserRole.ADMIN) {
+            throw new ForbiddenException("Access denied.");
+        }
     }
 }

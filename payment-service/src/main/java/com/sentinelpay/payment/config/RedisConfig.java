@@ -2,11 +2,12 @@ package com.sentinelpay.payment.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 import org.springframework.data.redis.connection.RedisConnectionFactory;
 import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.data.redis.serializer.StringRedisSerializer;
+import org.springframework.web.client.RestClient;
 
 /**
  * Redis configuration — sets up RedisTemplate beans and pre-compiled Lua scripts
@@ -16,6 +17,7 @@ import org.springframework.data.redis.serializer.StringRedisSerializer;
 public class RedisConfig {
 
     @Bean
+    @Primary
     public RedisTemplate<String, String> redisTemplate(RedisConnectionFactory factory) {
         RedisTemplate<String, String> template = new RedisTemplate<>();
         template.setConnectionFactory(factory);
@@ -65,6 +67,13 @@ public class RedisConfig {
      * ARGV[1] = lock token (UUID)<br>
      * Returns 1 if released, 0 if token mismatch (lock already expired or taken).
      */
+    @Bean
+    public RestClient restClient() {
+        return RestClient.builder()
+                .defaultHeader("User-Agent", "SentinelPay-WebhookDispatcher/1.0")
+                .build();
+    }
+
     @Bean(name = "unlockScript")
     public DefaultRedisScript<Long> unlockScript() {
         DefaultRedisScript<Long> script = new DefaultRedisScript<>();

@@ -1,9 +1,12 @@
 package com.sentinelpay.payment.controller;
 
+import com.sentinelpay.payment.exception.ForbiddenException;
+import com.sentinelpay.payment.exception.RateLimitExceededException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -19,11 +22,32 @@ import java.util.stream.Collectors;
 @Slf4j
 public class GlobalExceptionHandler {
 
+    @ExceptionHandler(RateLimitExceededException.class)
+    public ProblemDetail handleRateLimit(RateLimitExceededException ex) {
+        ProblemDetail p = ProblemDetail.forStatusAndDetail(HttpStatus.TOO_MANY_REQUESTS, ex.getMessage());
+        p.setType(URI.create("https://sentinelpay.com/errors/rate-limit"));
+        return p;
+    }
+
+    @ExceptionHandler(ForbiddenException.class)
+    public ProblemDetail handleForbidden(ForbiddenException ex) {
+        ProblemDetail p = ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, ex.getMessage());
+        p.setType(URI.create("https://sentinelpay.com/errors/forbidden"));
+        return p;
+    }
+
+    @ExceptionHandler(BadCredentialsException.class)
+    public ProblemDetail handleBadCredentials(BadCredentialsException ex) {
+        ProblemDetail p = ProblemDetail.forStatusAndDetail(HttpStatus.UNAUTHORIZED, ex.getMessage());
+        p.setType(URI.create("https://sentinelpay.com/errors/unauthorized"));
+        return p;
+    }
+
     @ExceptionHandler(IllegalArgumentException.class)
     public ProblemDetail handleIllegalArgument(IllegalArgumentException ex) {
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage());
-        problem.setType(URI.create("https://sentinelpay.com/errors/validation"));
-        return problem;
+        ProblemDetail p = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
+        p.setType(URI.create("https://sentinelpay.com/errors/bad-request"));
+        return p;
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -31,26 +55,26 @@ public class GlobalExceptionHandler {
         String detail = ex.getBindingResult().getFieldErrors().stream()
                 .map(FieldError::getDefaultMessage)
                 .collect(Collectors.joining("; "));
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, detail);
-        problem.setType(URI.create("https://sentinelpay.com/errors/bad-request"));
-        return problem;
+        ProblemDetail p = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, detail);
+        p.setType(URI.create("https://sentinelpay.com/errors/bad-request"));
+        return p;
     }
 
     @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
     public ProblemDetail handleOptimisticLock(ObjectOptimisticLockingFailureException ex) {
         log.warn("Optimistic lock conflict: {}", ex.getMessage());
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(
+        ProblemDetail p = ProblemDetail.forStatusAndDetail(
                 HttpStatus.CONFLICT, "Concurrent modification detected — please retry.");
-        problem.setType(URI.create("https://sentinelpay.com/errors/conflict"));
-        return problem;
+        p.setType(URI.create("https://sentinelpay.com/errors/conflict"));
+        return p;
     }
 
     @ExceptionHandler(Exception.class)
     public ProblemDetail handleGeneral(Exception ex) {
         log.error("Unhandled exception", ex);
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(
+        ProblemDetail p = ProblemDetail.forStatusAndDetail(
                 HttpStatus.INTERNAL_SERVER_ERROR, "An unexpected error occurred.");
-        problem.setType(URI.create("https://sentinelpay.com/errors/internal"));
-        return problem;
+        p.setType(URI.create("https://sentinelpay.com/errors/internal"));
+        return p;
     }
 }

@@ -1,0 +1,12 @@
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: none   # unit tests don't need the schema
+  flyway:
+    enabled: false
+  kafka:
+    bootstrap-servers: localhost:9092   # mocked in all tests
+
+sentinelpay:
+  jwt:
+    secret: test-secret-key-min-32-characters-long!!

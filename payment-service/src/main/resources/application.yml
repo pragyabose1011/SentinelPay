@@ -66,7 +66,7 @@ spring:
           min-idle: 5
 
 server:
-  port: ${SERVER_PORT:8080}
+  port: ${SERVER_PORT:8081}
 
 management:
   endpoints:
@@ -76,8 +76,54 @@ management:
   endpoint:
     health:
       show-details: when-authorized
+  tracing:
+    sampling:
+      probability: 1.0   # 100% in dev; reduce to 0.1 in prod
+  otlp:
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318/v1/traces}
 
+# Logging — include correlationId and OTel trace/span IDs in every line
+logging:
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] [%X{correlationId}] [%X{traceId}/%X{spanId}] %-5level %logger{36} - %msg%n"
+  level:
+    com.sentinelpay: DEBUG
+    org.springframework.security: INFO
+
+# ============================================================
 # SentinelPay custom configuration
+# ============================================================
 sentinelpay:
+
+  jwt:
+    secret: ${JWT_SECRET:change-me-in-production-min-32-chars!!}
+    expiration-ms: ${JWT_EXPIRATION_MS:86400000}   # 24 hours
+
+  fraud:
+    enabled: ${FRAUD_ENABLED:true}   # set to false in dev/test to skip scoring
+
+  kyc:
+    transfer-limit: ${KYC_TRANSFER_LIMIT:500000}    # INR; require KYC above ₹5,00,000
+
   outbox:
-    poll-interval-ms: 5000
+    poll-interval-ms: ${OUTBOX_POLL_MS:5000}
+
+  kafka:
+    topics:
+      kyc: kyc.events
+
+# ============================================================
+# Resilience4j — circuit breaker on Redis calls
+# ============================================================
+resilience4j:
+  circuitbreaker:
+    instances:
+      redis:
+        register-health-indicator: true
+        sliding-window-size: 10
+        permitted-number-of-calls-in-half-open-state: 3
+        wait-duration-in-open-state: 30s
+        failure-rate-threshold: 50
+        slow-call-rate-threshold: 80
+        slow-call-duration-threshold: 1s

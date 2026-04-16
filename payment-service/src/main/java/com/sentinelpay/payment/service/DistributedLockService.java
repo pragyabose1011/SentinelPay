@@ -1,5 +1,6 @@
 package com.sentinelpay.payment.service;
 
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -12,21 +13,19 @@ import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Redis-backed distributed lock service.
+ * Redis-backed distributed lock with Resilience4j circuit breaker.
  *
- * <p>Uses SET key value NX PX ttl for acquisition and an atomic Lua script for release.
- * This prevents the classic race condition where a lock expires between the GET check
- * and the DEL call.
- *
- * <p>Intended use: serialise concurrent payment requests for the same sender wallet
- * at the application layer, complementing the DB-level pessimistic write lock.
+ * <p>If Redis is unavailable the circuit opens and lock acquisition returns
+ * a synthetic token so payments can still proceed (DB locks remain the
+ * correctness guarantee; this lock is a performance optimisation).
  */
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class DistributedLockService {
 
-    private static final String LOCK_PREFIX = "lock:wallet:";
+    private static final String LOCK_PREFIX     = "lock:wallet:";
+    private static final String BYPASS_TOKEN    = "circuit-open";
 
     private final RedisTemplate<String, String> redisTemplate;
 
@@ -34,49 +33,50 @@ public class DistributedLockService {
     private final DefaultRedisScript<Long> unlockScript;
 
     /**
-     * Attempts to acquire a lock for the given wallet ID.
+     * Attempts to acquire a lock for the given wallet.
      *
-     * @param walletId  the wallet to lock
-     * @param ttl       lock time-to-live
-     * @param unit      TTL time unit
-     * @return a lock token (UUID string) to use when releasing, or {@code null} if the lock
-     *         could not be acquired (another holder owns it)
+     * @return a lock token to pass to {@link #unlock}, or {@code null} if another
+     *         holder owns the lock
      */
+    @CircuitBreaker(name = "redis", fallbackMethod = "acquireFallback")
     public String tryLock(String walletId, long ttl, TimeUnit unit) {
-        String key = LOCK_PREFIX + walletId;
-        String token = UUID.randomUUID().toString();
+        String  key   = LOCK_PREFIX + walletId;
+        String  token = UUID.randomUUID().toString();
         Boolean acquired = redisTemplate.opsForValue().setIfAbsent(key, token, ttl, unit);
         if (Boolean.TRUE.equals(acquired)) {
-            log.debug("Distributed lock acquired: key={}", key);
+            log.debug("Lock acquired: key={}", key);
             return token;
         }
-        log.warn("Could not acquire distributed lock: key={}", key);
+        log.warn("Lock unavailable: key={}", key);
         return null;
     }
 
     /**
-     * Releases the lock only if the supplied token matches the stored value.
-     * Safe to call even if the lock has already expired.
-     *
-     * @param walletId  the wallet whose lock to release
-     * @param token     the token returned by {@link #tryLock}
+     * Releases the lock only if the token matches.
      */
+    @CircuitBreaker(name = "redis", fallbackMethod = "releaseFallback")
     public void unlock(String walletId, String token) {
-        if (token == null) return;
+        if (token == null || BYPASS_TOKEN.equals(token)) return;
         String key = LOCK_PREFIX + walletId;
         try {
-            Long released = redisTemplate.execute(
-                    unlockScript,
-                    List.of(key),
-                    token
-            );
-            if (released != null && released == 1L) {
-                log.debug("Distributed lock released: key={}", key);
-            } else {
-                log.warn("Distributed lock release skipped (token mismatch or expired): key={}", key);
+            Long released = redisTemplate.execute(unlockScript, List.of(key), token);
+            if (released == null || released == 0L) {
+                log.warn("Lock release skipped (expired or token mismatch): key={}", key);
             }
         } catch (Exception e) {
-            log.error("Failed to release distributed lock key={}: {}", key, e.getMessage());
+            log.error("Failed to release lock key={}: {}", key, e.getMessage());
         }
+    }
+
+    /** Circuit open — return a bypass token so the payment can proceed. */
+    @SuppressWarnings("unused")
+    public String acquireFallback(String walletId, long ttl, TimeUnit unit, Throwable t) {
+        log.error("Lock circuit open for wallet={} — bypassing: {}", walletId, t.getMessage());
+        return BYPASS_TOKEN;
+    }
+
+    @SuppressWarnings("unused")
+    public void releaseFallback(String walletId, String token, Throwable t) {
+        log.error("Lock release circuit open for wallet={}: {}", walletId, t.getMessage());
     }
 }

@@ -27,4 +27,8 @@ public interface OutboxEventRepository extends JpaRepository<OutboxEvent, UUID> 
     @Modifying
     @Query("UPDATE OutboxEvent e SET e.processed = true, e.processedAt = :processedAt WHERE e.id IN :ids")
     int markAsProcessed(@Param("ids") List<UUID> ids, @Param("processedAt") Instant processedAt);
+
+    long countByProcessedFalse();
+
+    long countByProcessedTrue();
 }

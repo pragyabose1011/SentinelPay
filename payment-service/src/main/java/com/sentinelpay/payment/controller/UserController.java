@@ -8,19 +8,20 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.UUID;
 
 /**
- * REST API for user registration and account management.
+ * REST API for user account management.
  *
  * <pre>
- * POST   /api/v1/users                          — register a new user
+ * POST   /api/v1/users                          — admin: create user without password
  * GET    /api/v1/users/{userId}                 — get user by ID
  * GET    /api/v1/users?email={email}            — find user by email
- * PATCH  /api/v1/users/{userId}/kyc             — mark KYC as verified
- * PATCH  /api/v1/users/{userId}/status          — update account status
+ * PATCH  /api/v1/users/{userId}/kyc             — mark KYC as verified (self or admin)
+ * PATCH  /api/v1/users/{userId}/status          — update account status (self-close or admin)
  * </pre>
  */
 @RestController
@@ -31,8 +32,8 @@ public class UserController {
     private final UserService userService;
 
     @PostMapping
-    public ResponseEntity<UserResponse> registerUser(@Valid @RequestBody UserRequest request) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(userService.registerUser(request));
+    public ResponseEntity<UserResponse> createUser(@Valid @RequestBody UserRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(userService.createUser(request));
     }
 
     @GetMapping("/{userId}")
@@ -46,14 +47,17 @@ public class UserController {
     }
 
     @PatchMapping("/{userId}/kyc")
-    public ResponseEntity<UserResponse> verifyKyc(@PathVariable UUID userId) {
-        return ResponseEntity.ok(userService.verifyKyc(userId));
+    public ResponseEntity<UserResponse> verifyKyc(
+            @PathVariable UUID userId,
+            @AuthenticationPrincipal UUID actorId) {
+        return ResponseEntity.ok(userService.verifyKyc(userId, actorId));
     }
 
     @PatchMapping("/{userId}/status")
     public ResponseEntity<UserResponse> updateStatus(
             @PathVariable UUID userId,
-            @RequestParam User.UserStatus status) {
-        return ResponseEntity.ok(userService.updateStatus(userId, status));
+            @RequestParam User.UserStatus status,
+            @AuthenticationPrincipal UUID actorId) {
+        return ResponseEntity.ok(userService.updateStatus(userId, status, actorId));
     }
 }

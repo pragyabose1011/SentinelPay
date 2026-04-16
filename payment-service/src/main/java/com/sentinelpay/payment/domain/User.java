@@ -38,10 +38,19 @@ public class User {
     @Column(name = "phone_number", length = 20)
     private String phoneNumber;
 
+    /** BCrypt-hashed password. Null for system-created accounts. */
+    @Column(name = "password_hash", length = 255)
+    private String passwordHash;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)
     @Builder.Default
     private UserStatus status = UserStatus.ACTIVE;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "role", nullable = false, length = 20)
+    @Builder.Default
+    private UserRole role = UserRole.USER;
 
     @Column(name = "kyc_verified", nullable = false)
     @Builder.Default
@@ -62,5 +71,9 @@ public class User {
 
     public enum UserStatus {
         ACTIVE, SUSPENDED, CLOSED
+    }
+
+    public enum UserRole {
+        USER, ADMIN
     }
 }

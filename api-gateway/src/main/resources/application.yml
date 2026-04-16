@@ -1,0 +1,116 @@
+spring:
+  application:
+    name: api-gateway
+
+  cloud:
+    gateway:
+      # ---------------------------------------------------------------------------
+      # Route definitions
+      # ---------------------------------------------------------------------------
+      routes:
+
+        # ---- Auth (public) -------------------------------------------------------
+        - id: payment-auth
+          uri: ${PAYMENT_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/v1/auth/**
+          filters:
+            - StripPrefix=0
+
+        # ---- Payments ------------------------------------------------------------
+        - id: payment-transactions
+          uri: ${PAYMENT_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/v1/payments/**
+          filters:
+            - StripPrefix=0
+
+        # ---- Wallets -------------------------------------------------------------
+        - id: payment-wallets
+          uri: ${PAYMENT_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/v1/wallets/**
+          filters:
+            - StripPrefix=0
+
+        # ---- Users ---------------------------------------------------------------
+        - id: payment-users
+          uri: ${PAYMENT_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/v1/users/**
+          filters:
+            - StripPrefix=0
+
+        # ---- Deposits & Withdrawals ----------------------------------------------
+        - id: payment-deposits
+          uri: ${PAYMENT_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/v1/deposits/**,/api/v1/withdrawals/**
+          filters:
+            - StripPrefix=0
+
+        # ---- Webhooks ------------------------------------------------------------
+        - id: payment-webhooks
+          uri: ${PAYMENT_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/v1/webhooks/**
+          filters:
+            - StripPrefix=0
+
+        # ---- Admin ---------------------------------------------------------------
+        - id: payment-admin
+          uri: ${PAYMENT_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/v1/admin/**
+          filters:
+            - StripPrefix=0
+
+        # ---- KYC -----------------------------------------------------------------
+        - id: kyc-service
+          uri: ${KYC_SERVICE_URL:http://localhost:8083}
+          predicates:
+            - Path=/api/v1/kyc/**
+          filters:
+            - StripPrefix=0
+
+        # ---- Notifications -------------------------------------------------------
+        - id: notification-service
+          uri: ${NOTIFICATION_SERVICE_URL:http://localhost:8082}
+          predicates:
+            - Path=/api/v1/notifications/**
+          filters:
+            - StripPrefix=0
+
+      # ---------------------------------------------------------------------------
+      # Global default filters applied to all routes
+      # ---------------------------------------------------------------------------
+      default-filters:
+        - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
+
+      globalcors:
+        corsConfigurations:
+          '[/**]':
+            allowedOriginPatterns: "*"
+            allowedMethods: "*"
+            allowedHeaders: "*"
+            allowCredentials: true
+
+server:
+  port: ${SERVER_PORT:8084}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, metrics, gateway
+
+logging:
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+  level:
+    com.sentinelpay: DEBUG
+    org.springframework.cloud.gateway: INFO
+
+sentinelpay:
+  jwt:
+    secret: ${JWT_SECRET:change-me-in-production-min-32-chars!!}
