@@ -35,6 +35,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import org.springframework.data.redis.core.RedisTemplate;
 
 /**
  * Slice test for {@link AdminController}.
@@ -51,6 +52,7 @@ class AdminControllerTest {
     @Autowired MockMvc mockMvc;
 
     @MockBean JwtTokenProvider      jwtTokenProvider;
+    @MockBean RedisTemplate<String, String> redisTemplate;
     @MockBean UserDetailsService    userDetailsService;
     @MockBean TransactionRepository transactionRepository;
     @MockBean UserRepository        userRepository;

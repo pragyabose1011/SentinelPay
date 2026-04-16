@@ -14,6 +14,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
@@ -29,7 +30,7 @@ class KycEventConsumerTest {
     private final UUID subId  = UUID.randomUUID();
 
     @Test
-    void consume_shouldCallHandleKycEvent_withCorrectEventType() {
+    void consume_shouldCallHandleKycEvent_withCorrectEventType() throws Exception {
         String json = "{\"eventType\":\"KYC_APPROVED\",\"userId\":\"" + userId
                 + "\",\"submissionId\":\"" + subId + "\",\"userEmail\":\"u@ex.com\",\"fullName\":\"U\"}";
 
@@ -43,8 +44,10 @@ class KycEventConsumerTest {
     }
 
     @Test
-    void consume_shouldSwallowException_whenJsonIsMalformed() {
-        consumer.consume(record("{{bad-json"));
+    void consume_shouldThrow_whenJsonIsMalformed() {
+        // Exception propagates — DLQ error handler routes it to kyc.events.DLT
+        assertThatThrownBy(() -> consumer.consume(record("{{bad-json")))
+                .isInstanceOf(Exception.class);
 
         verifyNoInteractions(notificationService);
     }

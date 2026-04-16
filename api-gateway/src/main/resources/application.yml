@@ -97,6 +97,14 @@ spring:
 
 server:
   port: ${SERVER_PORT:8084}
+  ssl:
+    enabled: ${SSL_ENABLED:true}
+    key-store: classpath:keystore.p12
+    key-store-password: ${SSL_KEYSTORE_PASSWORD:sentinelpay}
+    key-store-type: PKCS12
+    key-alias: sentinelpay
+  http2:
+    enabled: true
 
 management:
   endpoints:
@@ -113,4 +121,4 @@ logging:
 
 sentinelpay:
   jwt:
-    secret: ${JWT_SECRET:change-me-in-production-min-32-chars!!}
+    secret: ${JWT_SECRET}

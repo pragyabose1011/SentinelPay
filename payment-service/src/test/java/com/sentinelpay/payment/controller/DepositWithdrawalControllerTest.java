@@ -27,6 +27,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import org.springframework.data.redis.core.RedisTemplate;
 
 @WebMvcTest(DepositWithdrawalController.class)
 @Import(SecurityConfig.class)
@@ -37,6 +38,7 @@ class DepositWithdrawalControllerTest {
 
     @MockBean DepositWithdrawalService depositWithdrawalService;
     @MockBean JwtTokenProvider         jwtTokenProvider;
+    @MockBean RedisTemplate<String, String> redisTemplate;
     @MockBean UserDetailsService       userDetailsService;
 
     private static final String BEARER = "Bearer test-token";

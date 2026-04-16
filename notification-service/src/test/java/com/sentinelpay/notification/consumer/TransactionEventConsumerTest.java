@@ -14,6 +14,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -28,7 +29,7 @@ class TransactionEventConsumerTest {
     private final UUID walletId = UUID.randomUUID();
 
     @Test
-    void consume_shouldCallHandleTransactionEvent_withParsedPayload() {
+    void consume_shouldCallHandleTransactionEvent_withParsedPayload() throws Exception {
         String json = "{\"transactionId\":\"" + txnId + "\","
                 + "\"senderWalletId\":\"" + walletId + "\","
                 + "\"amount\":10000.00,\"currency\":\"INR\","
@@ -45,14 +46,16 @@ class TransactionEventConsumerTest {
     }
 
     @Test
-    void consume_shouldSwallowException_whenJsonIsMalformed() {
-        consumer.consume(record("not-json"));
+    void consume_shouldThrow_whenJsonIsMalformed() {
+        // Exception propagates — DLQ error handler routes it to payment.transactions.DLT
+        assertThatThrownBy(() -> consumer.consume(record("not-json")))
+                .isInstanceOf(Exception.class);
 
         verifyNoInteractions(notificationService);
     }
 
     @Test
-    void consume_shouldIgnoreUnknownFields_forwardCompatibility() {
+    void consume_shouldIgnoreUnknownFields_forwardCompatibility() throws Exception {
         String json = "{\"transactionId\":\"" + txnId + "\","
                 + "\"status\":\"COMPLETED\",\"type\":\"TRANSFER\","
                 + "\"unknownFutureField\":\"value\"}";

@@ -26,15 +26,10 @@ public class KycEventConsumer {
             groupId  = "${spring.kafka.consumer.group-id}",
             containerFactory = "kafkaListenerContainerFactory"
     )
-    public void consume(ConsumerRecord<String, String> record) {
+    public void consume(ConsumerRecord<String, String> record) throws Exception {
         log.debug("Received KYC event: partition={} offset={} key={}",
                 record.partition(), record.offset(), record.key());
-        try {
-            KycEvent event = objectMapper.readValue(record.value(), KycEvent.class);
-            notificationService.handleKycEvent(event);
-        } catch (Exception e) {
-            log.error("Failed to process KYC event at offset {}: {}",
-                    record.offset(), e.getMessage(), e);
-        }
+        KycEvent event = objectMapper.readValue(record.value(), KycEvent.class);
+        notificationService.handleKycEvent(event);
     }
 }

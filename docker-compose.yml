@@ -5,9 +5,12 @@ version: "3.9"
 # ---------------------------------------------------------------------------
 x-common-env: &common-env
   KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-  DATASOURCE_USERNAME: sentinelpay
-  DATASOURCE_PASSWORD: sentinelpay
-  JWT_SECRET: change-me-in-production-min-32-chars!!
+  DATASOURCE_USERNAME: ${DB_USERNAME}
+  DATASOURCE_PASSWORD: ${DB_PASSWORD}
+  JWT_SECRET: ${JWT_SECRET}
+  JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+  JWT_EXPIRATION_MS: ${JWT_EXPIRATION_MS}
+  JWT_REFRESH_EXPIRATION_MS: ${JWT_REFRESH_EXPIRATION_MS}
 
 x-app-healthcheck: &app-healthcheck
   interval: 15s
@@ -25,8 +28,8 @@ services:
     image: postgres:16
     environment:
       POSTGRES_DB: sentinelpay
-      POSTGRES_USER: sentinelpay
-      POSTGRES_PASSWORD: sentinelpay
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
     ports:
       - "5432:5432"
     volumes:
@@ -74,6 +77,23 @@ services:
       interval: 10s
       timeout: 10s
       retries: 10
+
+  # One-shot container that pre-creates topics with explicit partition/RF settings.
+  # DLT topics use 1 partition since order matters less for dead letters.
+  kafka-setup:
+    image: confluentinc/cp-kafka:7.6.0
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic payment.transactions --partitions 3 --replication-factor 1 &&
+        kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic payment.transactions.DLT --partitions 1 --replication-factor 1 &&
+        kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic kyc.events --partitions 3 --replication-factor 1 &&
+        kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic kyc.events.DLT --partitions 1 --replication-factor 1 &&
+        echo "Kafka topics ready."
+    restart: "no"
 
   # ---------------------------------------------------------------------------
   # Observability
@@ -172,13 +192,15 @@ services:
       context: ./api-gateway
       dockerfile: Dockerfile
     ports:
-      - "8084:8084"
+      - "8443:8443"   # HTTPS entry point
     environment:
       <<: *common-env
       PAYMENT_SERVICE_URL: http://payment-service:8081
       KYC_SERVICE_URL: http://kyc-service:8083
       NOTIFICATION_SERVICE_URL: http://notification-service:8082
-      SERVER_PORT: 8084
+      SERVER_PORT: 8443
+      SSL_ENABLED: "true"
+      SSL_KEYSTORE_PASSWORD: ${SSL_KEYSTORE_PASSWORD}
     depends_on:
       payment-service:
         condition: service_healthy
@@ -187,7 +209,7 @@ services:
       notification-service:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget --quiet --tries=1 -O - http://localhost:8084/actuator/health | grep -q UP || exit 1"]
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --no-check-certificate -O - https://localhost:8443/actuator/health | grep -q UP || exit 1"]
       <<: *app-healthcheck
 
 volumes:

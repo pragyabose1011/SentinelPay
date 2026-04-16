@@ -30,6 +30,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import org.springframework.data.redis.core.RedisTemplate;
 
 /**
  * Slice test for {@link PaymentController}.
@@ -47,6 +48,7 @@ class PaymentControllerTest {
 
     @MockBean PaymentService    paymentService;
     @MockBean JwtTokenProvider  jwtTokenProvider;
+    @MockBean RedisTemplate<String, String> redisTemplate;
     @MockBean UserDetailsService userDetailsService;
 
     private static final String BEARER = "Bearer test-token";

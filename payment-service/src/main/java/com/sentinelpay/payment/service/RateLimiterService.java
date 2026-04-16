@@ -5,6 +5,7 @@ import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Service;
@@ -32,11 +33,19 @@ public class RateLimiterService {
     private final DefaultRedisScript<Long> rateLimiterScript;
 
     /**
+     * When {@code true} (default), Redis unavailability allows requests through.
+     * Set to {@code false} in environments where strict rate enforcement is required
+     * even at the cost of availability during Redis outages.
+     */
+    @Value("${sentinelpay.rate-limiter.fail-open:true}")
+    private boolean failOpen = true;  // default allows fail-open without Spring context
+
+    /**
      * Checks and records a payment attempt for the given sender wallet.
      *
      * @throws RateLimitExceededException if the limit is exceeded
      */
-    @CircuitBreaker(name = "redis", fallbackMethod = "failOpen")
+    @CircuitBreaker(name = "redis", fallbackMethod = "rateLimitFallback")
     public void checkPaymentRateLimit(String senderWalletId) {
         String key   = "rate_limit:payments:" + senderWalletId;
         long   nowMs = Instant.now().toEpochMilli();
@@ -57,9 +66,21 @@ public class RateLimiterService {
         }
     }
 
-    /** Fallback: fail open — Redis is down, allow the payment through. */
+    /**
+     * Fallback when the Redis circuit is open.
+     * Behaviour is controlled by {@code sentinelpay.rate-limiter.fail-open}:
+     * <ul>
+     *   <li>{@code true} (default) — allow the request through (availability over safety).</li>
+     *   <li>{@code false} — reject the request to prevent unchecked traffic (safety over availability).</li>
+     * </ul>
+     */
     @SuppressWarnings("unused")
-    public void failOpen(String senderWalletId, Throwable t) {
-        log.error("Rate limiter circuit open for wallet={} — failing open: {}", senderWalletId, t.getMessage());
+    public void rateLimitFallback(String senderWalletId, Throwable t) {
+        if (failOpen) {
+            log.error("Rate limiter circuit open for wallet={} — failing open: {}", senderWalletId, t.getMessage());
+        } else {
+            log.error("Rate limiter circuit open for wallet={} — failing closed: {}", senderWalletId, t.getMessage());
+            throw new RateLimitExceededException("Rate limiter unavailable — request rejected.");
+        }
     }
 }

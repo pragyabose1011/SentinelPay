@@ -97,8 +97,11 @@ logging:
 sentinelpay:
 
   jwt:
-    secret: ${JWT_SECRET:change-me-in-production-min-32-chars!!}
-    expiration-ms: ${JWT_EXPIRATION_MS:86400000}   # 24 hours
+    secret: ${JWT_SECRET}
+    refresh-secret: ${JWT_REFRESH_SECRET}
+    expiration-ms: ${JWT_EXPIRATION_MS:900000}            # 15 min default
+    refresh-expiration-ms: ${JWT_REFRESH_EXPIRATION_MS:604800000}  # 7 days default
+    blocklist-prefix: "blocklist:"
 
   fraud:
     enabled: ${FRAUD_ENABLED:true}   # set to false in dev/test to skip scoring
@@ -108,6 +111,10 @@ sentinelpay:
 
   outbox:
     poll-interval-ms: ${OUTBOX_POLL_MS:5000}
+    max-retries: ${OUTBOX_MAX_RETRIES:5}
+
+  rate-limiter:
+    fail-open: ${RATE_LIMITER_FAIL_OPEN:true}
 
   kafka:
     topics:

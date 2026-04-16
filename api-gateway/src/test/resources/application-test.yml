@@ -1,0 +1,3 @@
+sentinelpay:
+  jwt:
+    secret: test-secret-key-for-unit-tests-only-32chars

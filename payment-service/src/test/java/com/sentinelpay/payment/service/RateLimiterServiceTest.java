@@ -83,9 +83,9 @@ class RateLimiterServiceTest {
     // =========================================================================
 
     @Test
-    void failOpen_shouldNotThrow_allowingPaymentThrough() {
-        // failOpen is the Resilience4j fallback — it must never throw
-        assertThatCode(() -> rateLimiterService.failOpen("wallet-999", new RuntimeException("Redis down")))
+    void rateLimitFallback_shouldNotThrow_whenFailOpenIsTrue() {
+        // failOpen defaults to true in unit tests (no Spring context to inject @Value)
+        assertThatCode(() -> rateLimiterService.rateLimitFallback("wallet-999", new RuntimeException("Redis down")))
                 .doesNotThrowAnyException();
     }
 

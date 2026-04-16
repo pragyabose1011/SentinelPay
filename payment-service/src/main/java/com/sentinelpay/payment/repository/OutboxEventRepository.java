@@ -16,10 +16,14 @@ import java.util.UUID;
 public interface OutboxEventRepository extends JpaRepository<OutboxEvent, UUID> {
 
     /**
-     * Returns the oldest unpublished events up to the given limit.
-     * Used by the outbox publisher scheduler.
+     * Returns the oldest unpublished, non-parked events that are due for publishing.
+     * Events with a future {@code next_retry_at} are excluded (backoff not yet elapsed).
      */
-    List<OutboxEvent> findByProcessedFalseOrderByCreatedAtAsc(Pageable pageable);
+    @Query("SELECT e FROM OutboxEvent e " +
+           "WHERE e.processed = false AND e.parked = false " +
+           "AND (e.nextRetryAt IS NULL OR e.nextRetryAt <= :now) " +
+           "ORDER BY e.createdAt ASC")
+    List<OutboxEvent> findPublishableEvents(@Param("now") Instant now, Pageable pageable);
 
     /**
      * Bulk-mark events as processed after successful Kafka publish.

@@ -24,6 +24,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import org.springframework.data.redis.core.RedisTemplate;
 
 @WebMvcTest(UserController.class)
 @Import(SecurityConfig.class)
@@ -34,6 +35,7 @@ class UserControllerTest {
 
     @MockBean UserService      userService;
     @MockBean JwtTokenProvider jwtTokenProvider;
+    @MockBean RedisTemplate<String, String> redisTemplate;
 
     private static final String BEARER = "Bearer test-token";
     private final UUID testUserId = UUID.randomUUID();

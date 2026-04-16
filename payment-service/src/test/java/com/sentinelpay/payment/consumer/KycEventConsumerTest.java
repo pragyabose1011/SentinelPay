@@ -5,6 +5,8 @@ import com.sentinelpay.payment.repository.UserRepository;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
@@ -32,7 +34,7 @@ class KycEventConsumerTest {
     private final UUID userId = UUID.randomUUID();
 
     @Test
-    void consume_shouldSetKycVerified_whenKycApproved() {
+    void consume_shouldSetKycVerified_whenKycApproved() throws Exception {
         when(userRepository.setKycVerified(userId, true)).thenReturn(1);
 
         ConsumerRecord<String, String> record = record(
@@ -44,7 +46,7 @@ class KycEventConsumerTest {
     }
 
     @Test
-    void consume_shouldIgnore_whenEventTypeIsNotApproved() {
+    void consume_shouldIgnore_whenEventTypeIsNotApproved() throws Exception {
         ConsumerRecord<String, String> record = record(
                 "{\"eventType\":\"KYC_SUBMITTED\",\"userId\":\"" + userId + "\"}");
 
@@ -54,7 +56,7 @@ class KycEventConsumerTest {
     }
 
     @Test
-    void consume_shouldIgnore_whenEventTypeIsRejected() {
+    void consume_shouldIgnore_whenEventTypeIsRejected() throws Exception {
         ConsumerRecord<String, String> record = record(
                 "{\"eventType\":\"KYC_REJECTED\",\"userId\":\"" + userId + "\"}");
 
@@ -64,17 +66,18 @@ class KycEventConsumerTest {
     }
 
     @Test
-    void consume_shouldNotThrow_whenPayloadIsMalformed() {
+    void consume_shouldThrow_whenPayloadIsMalformed() {
         ConsumerRecord<String, String> record = record("not-valid-json{{{");
 
-        // must not propagate exception — consumer would stall the partition
-        consumer.consume(record);
+        // Malformed JSON propagates — the DLQ error handler catches it at the container level
+        assertThatThrownBy(() -> consumer.consume(record))
+                .isInstanceOf(Exception.class);
 
         verifyNoInteractions(userRepository);
     }
 
     @Test
-    void consume_shouldWarnAndSkip_whenUserIdMissing() {
+    void consume_shouldWarnAndSkip_whenUserIdMissing() throws Exception {
         ConsumerRecord<String, String> record = record("{\"eventType\":\"KYC_APPROVED\"}");
 
         consumer.consume(record);

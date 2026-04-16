@@ -15,3 +15,9 @@ target/
 ### OS files
 .DS_Store
 Thumbs.db
+
+### Secrets — never commit
+.env
+
+### TLS certificates (generated locally)
+docker/nginx/certs/

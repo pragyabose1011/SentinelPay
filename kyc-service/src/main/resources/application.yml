@@ -56,7 +56,7 @@ logging:
 
 sentinelpay:
   jwt:
-    secret: ${JWT_SECRET:change-me-in-production-min-32-chars!!}
+    secret: ${JWT_SECRET}
   kafka:
     topics:
       kyc: kyc.events

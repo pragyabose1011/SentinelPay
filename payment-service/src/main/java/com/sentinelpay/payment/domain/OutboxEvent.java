@@ -73,6 +73,22 @@ public class OutboxEvent {
     @Builder.Default
     private int retryCount = 0;
 
+    /**
+     * When true the event has exceeded the max retry threshold and is parked
+     * for manual inspection. The outbox publisher will not attempt to re-publish
+     * parked events.
+     */
+    @Column(name = "parked", nullable = false)
+    @Builder.Default
+    private boolean parked = false;
+
+    /**
+     * Earliest time this event may be retried. {@code null} means immediately eligible.
+     * Computed via exponential backoff after each failed publish attempt.
+     */
+    @Column(name = "next_retry_at")
+    private Instant nextRetryAt;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     @Builder.Default
     private Instant createdAt = Instant.now();
