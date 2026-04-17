@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: sentinelpay-redis
+  namespace: sentinelpay
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/part-of: sentinelpay
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/part-of: sentinelpay
+  ports:
+    - port: 6379
+      targetPort: 6379
+      name: redis
+---
+# Headless service used by the StatefulSet for pod identity
+apiVersion: v1
+kind: Service
+metadata:
+  name: sentinelpay-redis-headless
+  namespace: sentinelpay
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/part-of: sentinelpay
+  ports:
+    - port: 6379
+      targetPort: 6379

@@ -84,6 +84,13 @@ public class Transaction {
     @Column(name = "failure_reason", length = 500)
     private String failureReason;
 
+    /**
+     * External payment gateway order/reference ID (e.g. Razorpay {@code order_xxx}).
+     * Set when a deposit is initiated via a payment gateway; null for direct credits.
+     */
+    @Column(name = "gateway_reference", length = 128)
+    private String gatewayReference;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     @Builder.Default
     private Instant createdAt = Instant.now();

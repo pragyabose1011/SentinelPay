@@ -52,6 +52,14 @@ spring:
       auto-offset-reset: earliest
       enable-auto-commit: false
 
+  # Mail (password-reset emails; Mailhog in dev)
+  mail:
+    host: ${MAIL_HOST:localhost}
+    port: ${MAIL_PORT:1025}
+    properties:
+      mail.smtp.auth: false
+      mail.smtp.starttls.enable: false
+
   # Redis (rate limiting, distributed locks, idempotency cache)
   data:
     redis:
@@ -116,9 +124,25 @@ sentinelpay:
   rate-limiter:
     fail-open: ${RATE_LIMITER_FAIL_OPEN:true}
 
+  auth:
+    max-failed-attempts: ${AUTH_MAX_FAILED_ATTEMPTS:5}
+    lock-duration-minutes: ${AUTH_LOCK_DURATION_MINUTES:30}
+    failure-window-minutes: ${AUTH_FAILURE_WINDOW_MINUTES:15}
+    frontend-base-url: ${FRONTEND_BASE_URL:http://localhost:3000}
+
+  mail:
+    from: ${MAIL_FROM:noreply@sentinelpay.com}
+
   kafka:
     topics:
       kyc: kyc.events
+
+  razorpay:
+    enabled: ${RAZORPAY_ENABLED:false}
+    key-id: ${RAZORPAY_KEY_ID:rzp_test_placeholder}
+    key-secret: ${RAZORPAY_KEY_SECRET:placeholder_secret}
+    webhook-secret: ${RAZORPAY_WEBHOOK_SECRET:placeholder_webhook_secret}
+    base-url: https://api.razorpay.com/v1
 
 # ============================================================
 # Resilience4j — circuit breaker on Redis calls

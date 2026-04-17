@@ -1,0 +1,193 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-service
+  namespace: sentinelpay
+  labels:
+    app.kubernetes.io/name: payment-service
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/part-of: sentinelpay
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: payment-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0       # zero-downtime rolling deploy
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: payment-service
+        app.kubernetes.io/component: backend
+        app.kubernetes.io/part-of: sentinelpay
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/actuator/prometheus"
+        prometheus.io/port: "8081"
+    spec:
+      terminationGracePeriodSeconds: 60   # allow in-flight requests to drain
+      containers:
+        - name: payment-service
+          image: ghcr.io/OWNER/sentinelpay-payment-service:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8081
+              name: http
+          env:
+            # Non-sensitive config from ConfigMap
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                configMapKeyRef:
+                  name: sentinelpay-config
+                  key: KAFKA_BOOTSTRAP_SERVERS
+            - name: DATASOURCE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sentinelpay-config
+                  key: PAYMENT_DATASOURCE_URL
+            - name: REDIS_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: sentinelpay-config
+                  key: REDIS_HOST
+            - name: REDIS_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: sentinelpay-config
+                  key: REDIS_PORT
+            - name: SERVER_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: sentinelpay-config
+                  key: PAYMENT_SERVER_PORT
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: sentinelpay-config
+                  key: OTEL_EXPORTER_OTLP_ENDPOINT
+            - name: JWT_EXPIRATION_MS
+              valueFrom:
+                configMapKeyRef:
+                  name: sentinelpay-config
+                  key: JWT_EXPIRATION_MS
+            - name: JWT_REFRESH_EXPIRATION_MS
+              valueFrom:
+                configMapKeyRef:
+                  name: sentinelpay-config
+                  key: JWT_REFRESH_EXPIRATION_MS
+            - name: MAIL_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: sentinelpay-config
+                  key: MAIL_HOST
+            - name: MAIL_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: sentinelpay-config
+                  key: MAIL_PORT
+            - name: MAIL_FROM
+              valueFrom:
+                configMapKeyRef:
+                  name: sentinelpay-config
+                  key: MAIL_FROM
+            - name: RAZORPAY_ENABLED
+              valueFrom:
+                configMapKeyRef:
+                  name: sentinelpay-config
+                  key: RAZORPAY_ENABLED
+            - name: AUTH_MAX_FAILED_ATTEMPTS
+              valueFrom:
+                configMapKeyRef:
+                  name: sentinelpay-config
+                  key: AUTH_MAX_FAILED_ATTEMPTS
+            - name: AUTH_LOCK_DURATION_MINUTES
+              valueFrom:
+                configMapKeyRef:
+                  name: sentinelpay-config
+                  key: AUTH_LOCK_DURATION_MINUTES
+            - name: AUTH_FAILURE_WINDOW_MINUTES
+              valueFrom:
+                configMapKeyRef:
+                  name: sentinelpay-config
+                  key: AUTH_FAILURE_WINDOW_MINUTES
+            - name: FRONTEND_BASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: sentinelpay-config
+                  key: FRONTEND_BASE_URL
+            # Sensitive values from Secret
+            - name: DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: sentinelpay-secrets
+                  key: DATASOURCE_USERNAME
+            - name: DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: sentinelpay-secrets
+                  key: DATASOURCE_PASSWORD
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: sentinelpay-secrets
+                  key: JWT_SECRET
+            - name: JWT_REFRESH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: sentinelpay-secrets
+                  key: JWT_REFRESH_SECRET
+            - name: RAZORPAY_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: sentinelpay-secrets
+                  key: RAZORPAY_KEY_ID
+            - name: RAZORPAY_KEY_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: sentinelpay-secrets
+                  key: RAZORPAY_KEY_SECRET
+            - name: RAZORPAY_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: sentinelpay-secrets
+                  key: RAZORPAY_WEBHOOK_SECRET
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8081
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            failureThreshold: 3
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8081
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 3
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+          lifecycle:
+            preStop:
+              exec:
+                # Give the load balancer time to stop routing before the pod exits
+                command: ["sh", "-c", "sleep 10"]
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: payment-service
+                topologyKey: topology.kubernetes.io/zone

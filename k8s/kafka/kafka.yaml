@@ -1,0 +1,118 @@
+# ---------------------------------------------------------------------------
+# SentinelPay — Kafka Cluster (Strimzi operator)
+# ---------------------------------------------------------------------------
+# Prerequisite: Strimzi operator must be installed in the cluster.
+#   kubectl create namespace kafka
+#   kubectl apply -f https://strimzi.io/install/latest?namespace=kafka -n kafka
+#
+# This creates a 3-broker Kafka cluster with ZooKeeper, internal TLS,
+# and PodMonitor metrics for Prometheus.
+# ---------------------------------------------------------------------------
+apiVersion: kafka.strimzi.io/v1beta2
+kind: Kafka
+metadata:
+  name: sentinelpay
+  namespace: sentinelpay
+spec:
+  kafka:
+    version: 3.7.0
+    replicas: 3
+    listeners:
+      - name: plain
+        port: 9092
+        type: internal
+        tls: false
+      - name: tls
+        port: 9093
+        type: internal
+        tls: true
+    config:
+      offsets.topic.replication.factor: 3
+      transaction.state.log.replication.factor: 3
+      transaction.state.log.min.isr: 2
+      default.replication.factor: 3
+      min.insync.replicas: 2
+      inter.broker.protocol.version: "3.7"
+      # Retention: 7 days or 10 GiB per partition, whichever comes first
+      log.retention.hours: 168
+      log.retention.bytes: "10737418240"
+      log.segment.bytes: "1073741824"
+    storage:
+      type: persistent-claim
+      size: 20Gi
+      deleteClaim: false
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+      limits:
+        cpu: "2000m"
+        memory: "2Gi"
+    metricsConfig:
+      type: jmxPrometheusExporter
+      valueFrom:
+        configMapKeyRef:
+          name: sentinelpay-kafka-metrics
+          key: kafka-metrics-config.yml
+    template:
+      pod:
+        affinity:
+          podAntiAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - weight: 100
+                podAffinityTerm:
+                  labelSelector:
+                    matchExpressions:
+                      - key: strimzi.io/name
+                        operator: In
+                        values:
+                          - sentinelpay-kafka
+                  topologyKey: topology.kubernetes.io/zone
+
+  zookeeper:
+    replicas: 3
+    storage:
+      type: persistent-claim
+      size: 5Gi
+      deleteClaim: false
+    resources:
+      requests:
+        cpu: "200m"
+        memory: "512Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+
+  entityOperator:
+    topicOperator: {}
+    userOperator: {}
+
+---
+# ---------------------------------------------------------------------------
+# Kafka JMX metrics config (used by Prometheus JMX exporter)
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sentinelpay-kafka-metrics
+  namespace: sentinelpay
+data:
+  kafka-metrics-config.yml: |
+    lowercaseOutputName: true
+    rules:
+      - pattern: kafka.server<type=(.+), name=(.+), clientId=(.+), topic=(.+), partition=(.*)><>Value
+        name: kafka_server_$1_$2
+        type: GAUGE
+        labels:
+          clientId: "$3"
+          topic: "$4"
+          partition: "$5"
+      - pattern: kafka.server<type=(.+), name=(.+), clientId=(.+), brokerHost=(.+), brokerPort=(.+)><>Value
+        name: kafka_server_$1_$2
+        type: GAUGE
+        labels:
+          clientId: "$3"
+          broker: "$4:$5"
+      - pattern: kafka.server<type=(.+), name=(.+)><>Value
+        name: kafka_server_$1_$2
+        type: GAUGE

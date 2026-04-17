@@ -28,6 +28,7 @@ import static org.mockito.Mockito.*;
 class NotificationServiceTest {
 
     @Mock NotificationRepository notificationRepository;
+    @Mock EmailService           emailService;
 
     @InjectMocks NotificationService notificationService;
 

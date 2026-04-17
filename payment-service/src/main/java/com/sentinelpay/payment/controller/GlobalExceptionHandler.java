@@ -1,12 +1,15 @@
 package com.sentinelpay.payment.controller;
 
+import com.sentinelpay.payment.exception.AccountLockedException;
 import com.sentinelpay.payment.exception.ForbiddenException;
 import com.sentinelpay.payment.exception.RateLimitExceededException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -21,6 +24,25 @@ import java.util.stream.Collectors;
 @RestControllerAdvice
 @Slf4j
 public class GlobalExceptionHandler {
+
+    // Spring Security exceptions must be re-thrown so the security filter chain handles them.
+    // If caught here, they would be swallowed and return a generic 500 instead of 401/403.
+    @ExceptionHandler(AccessDeniedException.class)
+    public void handleAccessDenied(AccessDeniedException ex) throws AccessDeniedException {
+        throw ex;
+    }
+
+    @ExceptionHandler(AuthenticationException.class)
+    public void handleAuthentication(AuthenticationException ex) throws AuthenticationException {
+        throw ex;
+    }
+
+    @ExceptionHandler(AccountLockedException.class)
+    public ProblemDetail handleAccountLocked(AccountLockedException ex) {
+        ProblemDetail p = ProblemDetail.forStatusAndDetail(HttpStatus.LOCKED, ex.getMessage());
+        p.setType(URI.create("https://sentinelpay.com/errors/account-locked"));
+        return p;
+    }
 
     @ExceptionHandler(RateLimitExceededException.class)
     public ProblemDetail handleRateLimit(RateLimitExceededException ex) {

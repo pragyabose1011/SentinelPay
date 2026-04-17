@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sentinelpay
+  labels:
+    name: sentinelpay
+    # Allow Prometheus to scrape pods in this namespace
+    prometheus.io/scrape: "true"

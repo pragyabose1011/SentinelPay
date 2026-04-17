@@ -29,6 +29,13 @@ public class PaymentResponse {
     /** Populated for REVERSAL transactions — points to the original transaction. */
     private UUID referenceTransactionId;
 
+    /**
+     * External payment gateway order ID (e.g. Razorpay {@code order_xxx}).
+     * Populated for PENDING deposit transactions initiated via gateway.
+     * Null once the gateway confirms and the deposit completes.
+     */
+    private String gatewayReference;
+
     /** Fraud score 0–100 assigned at payment time. Null for idempotent replays. */
     private Integer fraudScore;
 
@@ -54,6 +61,7 @@ public class PaymentResponse {
                 .description(t.getDescription())
                 .failureReason(t.getFailureReason())
                 .referenceTransactionId(t.getReferenceTransactionId())
+                .gatewayReference(t.getGatewayReference())
                 .createdAt(t.getCreatedAt())
                 .completedAt(t.getCompletedAt())
                 .idempotent(false)

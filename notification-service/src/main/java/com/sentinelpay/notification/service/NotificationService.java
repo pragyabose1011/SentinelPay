@@ -25,6 +25,7 @@ import java.time.Instant;
 public class NotificationService {
 
     private final NotificationRepository notificationRepository;
+    private final EmailService emailService;
 
     @Async
     @Transactional
@@ -87,13 +88,11 @@ public class NotificationService {
     }
 
     // -------------------------------------------------------------------------
-    // Dispatch stub — replace with JavaMailSender / Twilio in production
+    // Dispatch — real email via JavaMailSender (Mailhog in dev)
     // -------------------------------------------------------------------------
 
     private void dispatch(Notification notification, String subject, String body) {
-        // Simulated delivery — log and mark sent
-        log.info("[EMAIL] To={} Subject=\"{}\" Body=\"{}\"",
-                notification.getRecipient(), subject, body);
+        emailService.send(notification.getRecipient(), subject, body);
         notification.setStatus(Notification.Status.SENT);
         notification.setSentAt(Instant.now());
     }

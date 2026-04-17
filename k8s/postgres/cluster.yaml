@@ -1,0 +1,134 @@
+# ---------------------------------------------------------------------------
+# SentinelPay — PostgreSQL HA Cluster (CloudNativePG)
+# ---------------------------------------------------------------------------
+# Prerequisite: CloudNativePG operator must be installed in the cluster.
+#   kubectl apply -f https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/release-1.23/releases/cnpg-1.23.0.yaml
+#
+# This creates a 3-node streaming-replication cluster with:
+#   • Automatic primary election and failover (Raft-based)
+#   • Read/write endpoint: sentinelpay-postgres-rw:5432
+#   • Read-only endpoint:  sentinelpay-postgres-ro:5432
+#   • Any-read endpoint:   sentinelpay-postgres-r:5432
+#   • PodMonitor for Prometheus scraping
+#   • Point-in-time recovery via WAL archiving to S3
+# ---------------------------------------------------------------------------
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: sentinelpay-postgres
+  namespace: sentinelpay
+spec:
+  instances: 3
+
+  # ---------------------------------------------------------------------------
+  # Bootstrap — create databases and grant permissions on first start
+  # ---------------------------------------------------------------------------
+  bootstrap:
+    initdb:
+      database: sentinelpay
+      owner: sentinelpay
+      secret:
+        name: sentinelpay-secrets
+      # Additional databases created after initdb completes
+      postInitSQL:
+        - "CREATE DATABASE sentinelpay_notifications;"
+        - "CREATE DATABASE sentinelpay_kyc;"
+        - "GRANT ALL PRIVILEGES ON DATABASE sentinelpay_notifications TO sentinelpay;"
+        - "GRANT ALL PRIVILEGES ON DATABASE sentinelpay_kyc TO sentinelpay;"
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL configuration
+  # ---------------------------------------------------------------------------
+  postgresql:
+    parameters:
+      # Connection headroom for connection pooling (PgBouncer or HikariCP)
+      max_connections: "300"
+      # Shared memory: ~25% of pod RAM (pod has 512Mi request)
+      shared_buffers: "128MB"
+      effective_cache_size: "384MB"
+      work_mem: "4MB"
+      maintenance_work_mem: "64MB"
+      # WAL settings for streaming replication
+      wal_level: replica
+      max_wal_senders: "10"
+      wal_keep_size: "128MB"
+      # Checkpoint tuning
+      checkpoint_completion_target: "0.9"
+      # Logging — only slow queries to keep volume manageable
+      log_min_duration_statement: "1000"
+      log_statement: none
+
+  # ---------------------------------------------------------------------------
+  # Storage
+  # ---------------------------------------------------------------------------
+  storage:
+    size: 20Gi
+    storageClass: standard   # replace with your cloud provider class (gp3, pd-ssd, etc.)
+
+  walStorage:
+    size: 5Gi
+    storageClass: standard
+
+  # ---------------------------------------------------------------------------
+  # Resource requests/limits per Postgres pod
+  # ---------------------------------------------------------------------------
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+    limits:
+      cpu: "1000m"
+      memory: "1Gi"
+
+  # ---------------------------------------------------------------------------
+  # Affinity — spread replicas across availability zones
+  # ---------------------------------------------------------------------------
+  affinity:
+    topologyKey: topology.kubernetes.io/zone
+    podAntiAffinityType: preferred
+
+  # ---------------------------------------------------------------------------
+  # WAL archiving → S3 (enables PITR and base backups)
+  # Uncomment and configure with your S3 bucket in production.
+  # ---------------------------------------------------------------------------
+  # backup:
+  #   retentionPolicy: "7d"
+  #   barmanObjectStore:
+  #     destinationPath: "s3://sentinelpay-postgres-backup/wal"
+  #     s3Credentials:
+  #       accessKeyId:
+  #         name: s3-backup-credentials
+  #         key: ACCESS_KEY_ID
+  #       secretAccessKey:
+  #         name: s3-backup-credentials
+  #         key: SECRET_ACCESS_KEY
+  #     wal:
+  #       compression: gzip
+  #       maxParallel: 2
+
+  # ---------------------------------------------------------------------------
+  # Monitoring — exposes a PodMonitor for the Prometheus operator
+  # ---------------------------------------------------------------------------
+  monitoring:
+    enablePodMonitor: true
+
+  # ---------------------------------------------------------------------------
+  # Primary switchover strategy
+  # ---------------------------------------------------------------------------
+  primaryUpdateStrategy: unsupervised   # allow automatic switchover during rolling updates
+  primaryUpdateMethod: switchover
+
+---
+# ---------------------------------------------------------------------------
+# Scheduled backup (daily, 02:00 UTC)
+# ---------------------------------------------------------------------------
+# apiVersion: postgresql.cnpg.io/v1
+# kind: ScheduledBackup
+# metadata:
+#   name: sentinelpay-postgres-daily
+#   namespace: sentinelpay
+# spec:
+#   schedule: "0 2 * * *"
+#   backupOwnerReference: self
+#   cluster:
+#     name: sentinelpay-postgres

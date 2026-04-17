@@ -11,6 +11,8 @@ x-common-env: &common-env
   JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
   JWT_EXPIRATION_MS: ${JWT_EXPIRATION_MS}
   JWT_REFRESH_EXPIRATION_MS: ${JWT_REFRESH_EXPIRATION_MS}
+  MAIL_HOST: mailhog
+  MAIL_PORT: 1025
 
 x-app-healthcheck: &app-healthcheck
   interval: 15s
@@ -50,6 +52,17 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    ports:
+      - "1025:1025"   # SMTP
+      - "8025:8025"   # Web UI
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "-O", "-", "http://localhost:8025/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   zookeeper:
     image: confluentinc/cp-zookeeper:7.6.0
@@ -130,6 +143,9 @@ services:
       REDIS_PORT: 6379
       SERVER_PORT: 8081
       OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318/v1/traces
+      RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-rzp_test_placeholder}
+      RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-placeholder_secret}
+      RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET:-placeholder_webhook_secret}
     depends_on:
       postgres:
         condition: service_healthy
@@ -138,6 +154,8 @@ services:
       kafka:
         condition: service_healthy
       jaeger:
+        condition: service_healthy
+      mailhog:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget --quiet --tries=1 -O - http://localhost:8081/actuator/health | grep -q UP || exit 1"]
@@ -160,6 +178,8 @@ services:
       kafka:
         condition: service_healthy
       jaeger:
+        condition: service_healthy
+      mailhog:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget --quiet --tries=1 -O - http://localhost:8082/actuator/health | grep -q UP || exit 1"]

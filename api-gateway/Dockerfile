@@ -1,4 +1,26 @@
+# ---------------------------------------------------------------------------
+# api-gateway — layered Spring Boot image
+# ---------------------------------------------------------------------------
+FROM eclipse-temurin:21-jre-alpine AS layers
+WORKDIR /builder
+COPY target/api-gateway-*.jar app.jar
+RUN java -Djarmode=layertools -jar app.jar extract --destination /builder/layers
+
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
-COPY target/api-gateway-*.jar app.jar
-ENTRYPOINT ["java", "-jar", "app.jar"]
+
+COPY --from=layers /builder/layers/dependencies ./
+COPY --from=layers /builder/layers/spring-boot-loader ./
+COPY --from=layers /builder/layers/snapshot-dependencies ./
+COPY --from=layers /builder/layers/application ./
+
+RUN addgroup -S sentinelpay && adduser -S sentinelpay -G sentinelpay
+USER sentinelpay
+
+EXPOSE 8443
+
+ENTRYPOINT ["java", \
+  "-XX:+UseContainerSupport", \
+  "-XX:MaxRAMPercentage=75.0", \
+  "-Djava.security.egd=file:/dev/./urandom", \
+  "org.springframework.boot.loader.launch.JarLauncher"]

@@ -1,6 +1,7 @@
 package com.sentinelpay.payment.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sentinelpay.payment.domain.OutboxEvent;
 import com.sentinelpay.payment.domain.Transaction;
@@ -42,9 +43,13 @@ public class DepositWithdrawalService {
     private final TransactionRepository transactionRepository;
     private final OutboxEventRepository outboxEventRepository;
     private final ObjectMapper          objectMapper;
+    private final RazorpayService       razorpayService;
 
     @Value("${sentinelpay.kyc.transfer-limit:500000}")
     private BigDecimal kycTransferLimit;
+
+    @Value("${sentinelpay.razorpay.enabled:false}")
+    private boolean razorpayEnabled;
 
     // -------------------------------------------------------------------------
     // Deposit
@@ -73,6 +78,27 @@ public class DepositWithdrawalService {
             throw new IllegalArgumentException("Cannot deposit into a non-ACTIVE wallet.");
         }
 
+        if (razorpayEnabled) {
+            // Gateway flow: create Razorpay order → return PENDING, wallet credited on webhook
+            String orderId = razorpayService.createOrder(
+                    request.getAmount(), wallet.getCurrency(), request.getIdempotencyKey());
+
+            Transaction txn = Transaction.builder()
+                    .idempotencyKey(request.getIdempotencyKey())
+                    .receiverWallet(wallet)
+                    .amount(request.getAmount())
+                    .currency(wallet.getCurrency())
+                    .type(Transaction.TransactionType.DEPOSIT)
+                    .description(request.getReference() != null ? "Deposit: " + request.getReference() : "Deposit")
+                    .gatewayReference(orderId)
+                    .status(Transaction.TransactionStatus.PENDING)
+                    .build();
+            txn = transactionRepository.save(txn);
+            log.info("Deposit pending Razorpay confirmation: walletId={} orderId={}", wallet.getId(), orderId);
+            return PaymentResponse.from(txn);
+        }
+
+        // Direct flow (dev / Razorpay disabled): immediately credit wallet
         wallet.setBalance(wallet.getBalance().add(request.getAmount()));
         walletRepository.save(wallet);
 
@@ -89,8 +115,64 @@ public class DepositWithdrawalService {
         txn = transactionRepository.save(txn);
         publishOutboxEvent(txn);
 
-        log.info("Deposit: walletId={} amount={} {}", wallet.getId(), request.getAmount(), wallet.getCurrency());
+        log.info("Deposit completed (direct): walletId={} amount={} {}", wallet.getId(), request.getAmount(), wallet.getCurrency());
         return PaymentResponse.from(txn);
+    }
+
+    // -------------------------------------------------------------------------
+    // Razorpay webhook — payment.captured event
+    // -------------------------------------------------------------------------
+
+    /**
+     * Handles a verified {@code payment.captured} event from Razorpay.
+     *
+     * <p>Finds the pending DEPOSIT transaction by the Razorpay order ID,
+     * credits the receiver wallet, marks the transaction COMPLETED,
+     * and publishes the outbox event. Duplicate webhooks are safely ignored.
+     */
+    @Transactional
+    public void handleRazorpayWebhook(String rawPayload) {
+        JsonNode event;
+        try {
+            event = objectMapper.readTree(rawPayload);
+        } catch (JsonProcessingException e) {
+            throw new IllegalArgumentException("Invalid Razorpay webhook payload", e);
+        }
+
+        String eventType = event.path("event").asText();
+        if (!"payment.captured".equals(eventType)) {
+            log.debug("Ignoring Razorpay event type: {}", eventType);
+            return;
+        }
+
+        String orderId = event.at("/payload/payment/entity/order_id").asText(null);
+        if (orderId == null || orderId.isBlank()) {
+            throw new IllegalArgumentException("Razorpay webhook missing order_id");
+        }
+
+        Transaction txn = transactionRepository.findByGatewayReference(orderId)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "No pending deposit found for Razorpay order: " + orderId));
+
+        if (txn.getStatus() != Transaction.TransactionStatus.PENDING) {
+            log.info("Duplicate Razorpay webhook ignored: orderId={} txnId={} status={}",
+                    orderId, txn.getId(), txn.getStatus());
+            return;
+        }
+
+        UUID txnId = txn.getId();
+        Wallet wallet = walletRepository.findByIdWithLock(txn.getReceiverWallet().getId())
+                .orElseThrow(() -> new IllegalStateException("Receiver wallet not found for txn: " + txnId));
+        wallet.setBalance(wallet.getBalance().add(txn.getAmount()));
+        walletRepository.save(wallet);
+
+        txn.setStatus(Transaction.TransactionStatus.COMPLETED);
+        txn.setCompletedAt(Instant.now());
+        txn = transactionRepository.save(txn);
+        publishOutboxEvent(txn);
+
+        log.info("Deposit completed via Razorpay webhook: orderId={} txnId={} walletId={}",
+                orderId, txn.getId(), wallet.getId());
     }
 
     // -------------------------------------------------------------------------

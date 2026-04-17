@@ -5,6 +5,7 @@ import com.sentinelpay.payment.domain.User;
 import com.sentinelpay.payment.dto.AuthResponse;
 import com.sentinelpay.payment.dto.LoginRequest;
 import com.sentinelpay.payment.dto.RegisterRequest;
+import com.sentinelpay.payment.exception.AccountLockedException;
 import com.sentinelpay.payment.repository.PasswordResetTokenRepository;
 import com.sentinelpay.payment.repository.UserRepository;
 import com.sentinelpay.payment.security.JwtTokenProvider;
@@ -38,6 +39,7 @@ public class AuthService {
     private final RefreshTokenService        refreshTokenService;
     private final PasswordResetTokenRepository passwordResetTokenRepository;
     private final RedisTemplate<String, String> redisTemplate;
+    private final EmailService               emailService;
 
     @Value("${sentinelpay.jwt.expiration-ms:900000}")
     private long accessExpirationMs;
@@ -47,6 +49,21 @@ public class AuthService {
 
     @Value("${sentinelpay.jwt.blocklist-prefix:blocklist:}")
     private String blocklistPrefix;
+
+    @Value("${sentinelpay.auth.max-failed-attempts:5}")
+    private int maxFailedAttempts;
+
+    @Value("${sentinelpay.auth.lock-duration-minutes:30}")
+    private int lockDurationMinutes;
+
+    @Value("${sentinelpay.auth.failure-window-minutes:15}")
+    private int failureWindowMinutes;
+
+    @Value("${sentinelpay.auth.frontend-base-url:http://localhost:3000}")
+    private String frontendBaseUrl;
+
+    private static final String LOGIN_LOCK_PREFIX    = "login:locked:";
+    private static final String LOGIN_FAILURE_PREFIX = "login:failures:";
 
     // -------------------------------------------------------------------------
     // Register
@@ -74,15 +91,40 @@ public class AuthService {
 
     @Transactional
     public AuthResponse login(LoginRequest request) {
-        User user = userRepository.findByEmail(request.getEmail())
-                .orElseThrow(() -> new BadCredentialsException("Invalid email or password."));
+        String email    = request.getEmail();
+        String lockKey  = LOGIN_LOCK_PREFIX    + email;
+        String failKey  = LOGIN_FAILURE_PREFIX + email;
 
-        if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
+        // Check temporary account lock set by brute-force protection
+        if (Boolean.TRUE.equals(redisTemplate.hasKey(lockKey))) {
+            throw new AccountLockedException(
+                    "Account temporarily locked due to repeated failed login attempts. Try again later.");
+        }
+
+        User user = userRepository.findByEmail(email).orElse(null);
+        boolean credentialsValid = user != null
+                && passwordEncoder.matches(request.getPassword(), user.getPasswordHash())
+                && user.getStatus() == User.UserStatus.ACTIVE;
+
+        if (!credentialsValid) {
+            // Increment failure counter (with sliding TTL on first increment)
+            Long failures = redisTemplate.opsForValue().increment(failKey);
+            if (failures != null && failures == 1) {
+                redisTemplate.expire(failKey, failureWindowMinutes, TimeUnit.MINUTES);
+            }
+            if (failures != null && failures >= maxFailedAttempts) {
+                redisTemplate.opsForValue().set(lockKey, "1", lockDurationMinutes, TimeUnit.MINUTES);
+                redisTemplate.delete(failKey);
+                log.warn("Account locked after {} failed attempts: email={}", failures, email);
+                throw new AccountLockedException(
+                        "Too many failed attempts. Account locked for " + lockDurationMinutes + " minutes.");
+            }
+            // Use same generic message to prevent user enumeration
             throw new BadCredentialsException("Invalid email or password.");
         }
-        if (user.getStatus() != User.UserStatus.ACTIVE) {
-            throw new BadCredentialsException("Account is not active. Status: " + user.getStatus());
-        }
+
+        // Successful login — clear any accumulated failure counter
+        redisTemplate.delete(failKey);
         log.info("User logged in: id={}", user.getId());
         return buildAuthResponse(new UserPrincipal(user));
     }
@@ -168,8 +210,14 @@ public class AuthService {
                     .build();
             passwordResetTokenRepository.save(entity);
 
-            // TODO Phase 4: replace with email dispatch
-            log.info("Password reset link (dev only): /api/v1/auth/reset-password?token={}", rawToken);
+            String resetLink = frontendBaseUrl + "/reset-password?token=" + rawToken;
+            emailService.send(
+                    user.getEmail(),
+                    "Reset your SentinelPay password",
+                    "Click the link below to reset your password (expires in 1 hour):\n\n"
+                            + resetLink
+                            + "\n\nIf you did not request a password reset, you can safely ignore this email.");
+            log.info("Password reset email sent to userId={}", user.getId());
         });
     }
 

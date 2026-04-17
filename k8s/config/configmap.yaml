@@ -1,0 +1,49 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: sentinelpay-config
+  namespace: sentinelpay
+data:
+  # ---- Kafka -----------------------------------------------------------------
+  KAFKA_BOOTSTRAP_SERVERS: "sentinelpay-kafka-bootstrap.sentinelpay.svc.cluster.local:9092"
+
+  # ---- Database (CloudNativePG exposes rw/r/ro endpoints) --------------------
+  PAYMENT_DATASOURCE_URL: "jdbc:postgresql://sentinelpay-postgres-rw.sentinelpay.svc.cluster.local:5432/sentinelpay"
+  NOTIFICATION_DATASOURCE_URL: "jdbc:postgresql://sentinelpay-postgres-rw.sentinelpay.svc.cluster.local:5432/sentinelpay_notifications"
+  KYC_DATASOURCE_URL: "jdbc:postgresql://sentinelpay-postgres-rw.sentinelpay.svc.cluster.local:5432/sentinelpay_kyc"
+
+  # ---- Redis ------------------------------------------------------------------
+  REDIS_HOST: "sentinelpay-redis.sentinelpay.svc.cluster.local"
+  REDIS_PORT: "6379"
+
+  # ---- Mail (set MAIL_HOST to your SMTP provider in prod) --------------------
+  MAIL_HOST: "smtp.sendgrid.net"
+  MAIL_PORT: "587"
+  MAIL_FROM: "noreply@sentinelpay.com"
+
+  # ---- Service ports ----------------------------------------------------------
+  PAYMENT_SERVER_PORT: "8081"
+  NOTIFICATION_SERVER_PORT: "8082"
+  KYC_SERVER_PORT: "8083"
+  GATEWAY_SERVER_PORT: "8443"
+
+  # ---- Service URLs (gateway → downstream) -----------------------------------
+  PAYMENT_SERVICE_URL: "http://payment-service.sentinelpay.svc.cluster.local:8081"
+  NOTIFICATION_SERVICE_URL: "http://notification-service.sentinelpay.svc.cluster.local:8082"
+  KYC_SERVICE_URL: "http://kyc-service.sentinelpay.svc.cluster.local:8083"
+
+  # ---- Observability ----------------------------------------------------------
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger.sentinelpay.svc.cluster.local:4318/v1/traces"
+
+  # ---- Token expiry (defaults) ------------------------------------------------
+  JWT_EXPIRATION_MS: "900000"
+  JWT_REFRESH_EXPIRATION_MS: "604800000"
+
+  # ---- Razorpay (override RAZORPAY_ENABLED=true in Secret when deploying prod) -
+  RAZORPAY_ENABLED: "false"
+
+  # ---- Brute-force protection defaults ----------------------------------------
+  AUTH_MAX_FAILED_ATTEMPTS: "5"
+  AUTH_LOCK_DURATION_MINUTES: "30"
+  AUTH_FAILURE_WINDOW_MINUTES: "15"
+  FRONTEND_BASE_URL: "https://app.sentinelpay.com"
