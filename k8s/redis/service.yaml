@@ -35,7 +35,7 @@ spec:
       targetPort: 6379
       name: redis
 ---
-# Sentinel service — Spring Boot connects here for automatic master discovery
+# Sentinel ClusterIP — kept for health checks and tooling; app uses pod DNS directly
 apiVersion: v1
 kind: Service
 metadata:
@@ -46,6 +46,27 @@ metadata:
     app.kubernetes.io/part-of: sentinelpay
 spec:
   type: ClusterIP
+  selector:
+    app.kubernetes.io/name: sentinelpay-redis-sentinel
+    app.kubernetes.io/part-of: sentinelpay
+  ports:
+    - port: 26379
+      targetPort: 26379
+      name: sentinel
+---
+# Headless service — gives each sentinel pod a stable DNS name so Lettuce
+# can address all 3 individually:
+#   sentinelpay-redis-sentinel-{0,1,2}.sentinelpay-redis-sentinel-headless.sentinelpay.svc.cluster.local
+apiVersion: v1
+kind: Service
+metadata:
+  name: sentinelpay-redis-sentinel-headless
+  namespace: sentinelpay
+  labels:
+    app.kubernetes.io/name: sentinelpay-redis-sentinel
+    app.kubernetes.io/part-of: sentinelpay
+spec:
+  clusterIP: None
   selector:
     app.kubernetes.io/name: sentinelpay-redis-sentinel
     app.kubernetes.io/part-of: sentinelpay

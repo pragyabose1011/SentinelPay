@@ -138,10 +138,14 @@ spec:
             storage: 2Gi
 
 ---
-# Sentinel — 3 replicas, each monitoring the Redis master.
-# Quorum = 2: any 2 sentinels must agree before triggering a failover.
+# Sentinel — StatefulSet (not Deployment) so each pod gets a stable DNS name:
+#   sentinelpay-redis-sentinel-{0,1,2}.sentinelpay-redis-sentinel-headless.sentinelpay.svc.cluster.local
+#
+# Lettuce (Spring's Redis client) is configured with all 3 addresses, so it
+# can reach a working sentinel even if one pod is down during a node drain or
+# zone failure. Quorum = 2: any 2 sentinels must agree before promoting a replica.
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: sentinelpay-redis-sentinel
   namespace: sentinelpay
@@ -150,6 +154,7 @@ metadata:
     app.kubernetes.io/component: cache
     app.kubernetes.io/part-of: sentinelpay
 spec:
+  serviceName: sentinelpay-redis-sentinel-headless
   replicas: 3
   selector:
     matchLabels:
@@ -170,7 +175,6 @@ spec:
             - -c
             - |
               cp /config-template/sentinel.conf /sentinel-data/sentinel.conf
-              # Optionally append auth-pass if password is set
               if [ -n "$REDIS_PASSWORD" ]; then
                 echo "sentinel auth-pass mymaster $REDIS_PASSWORD" >> /sentinel-data/sentinel.conf
               fi

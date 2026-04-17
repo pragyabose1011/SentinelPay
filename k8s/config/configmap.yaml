@@ -17,7 +17,9 @@ data:
   REDIS_HOST: "sentinelpay-redis.sentinelpay.svc.cluster.local"
   REDIS_PORT: "6379"
   REDIS_SENTINEL_MASTER: "mymaster"
-  REDIS_SENTINEL_NODES: "sentinelpay-redis-sentinel.sentinelpay.svc.cluster.local:26379"
+  # All 3 sentinel pod addresses — Lettuce tries each in order, so a single
+  # drained or restarting pod does not prevent master discovery.
+  REDIS_SENTINEL_NODES: "sentinelpay-redis-sentinel-0.sentinelpay-redis-sentinel-headless.sentinelpay.svc.cluster.local:26379,sentinelpay-redis-sentinel-1.sentinelpay-redis-sentinel-headless.sentinelpay.svc.cluster.local:26379,sentinelpay-redis-sentinel-2.sentinelpay-redis-sentinel-headless.sentinelpay.svc.cluster.local:26379"
 
   # ---- Mail (set to real SMTP provider values in prod) -----------------------
   MAIL_HOST: "smtp.sendgrid.net"
