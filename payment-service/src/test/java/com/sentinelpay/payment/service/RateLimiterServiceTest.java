@@ -1,6 +1,7 @@
 package com.sentinelpay.payment.service;
 
 import com.sentinelpay.payment.exception.RateLimitExceededException;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -39,7 +40,7 @@ class RateLimiterServiceTest {
 
     @BeforeEach
     void setUp() {
-        rateLimiterService = new RateLimiterService(redisTemplate, rateLimiterScript);
+        rateLimiterService = new RateLimiterService(redisTemplate, rateLimiterScript, new SimpleMeterRegistry());
     }
 
     // =========================================================================

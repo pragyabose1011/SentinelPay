@@ -1,0 +1,56 @@
+groups:
+  - name: sentinelpay.availability
+    interval: 30s
+    rules:
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service {{ $labels.job }} is down"
+          description: "{{ $labels.instance }} has been unreachable for more than 1 minute."
+
+      - alert: HighPaymentErrorRate
+        expr: |
+          rate(sentinelpay_payments_total{outcome="error"}[5m])
+          /
+          (rate(sentinelpay_payments_total[5m]) + 0.001)
+          > 0.1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Payment error rate above 10%"
+          description: "{{ $value | humanizePercentage }} of payments are failing over the last 5m."
+
+      - alert: OutboxEventsParked
+        expr: sentinelpay_outbox_parked > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Outbox events parked — manual intervention required"
+          description: "{{ $value }} outbox event(s) have been parked after exceeding max retries."
+
+      - alert: RateLimitSpike
+        expr: rate(sentinelpay_rate_limit_exceeded_total[5m]) > 1
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Rate limit exceeded frequently"
+          description: "More than 1 rate-limit rejection per second over the last 5m."
+
+      - alert: HighHttpErrorRate
+        expr: |
+          rate(http_server_requests_seconds_count{status=~"5.."}[5m])
+          /
+          (rate(http_server_requests_seconds_count[5m]) + 0.001)
+          > 0.05
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "HTTP 5xx error rate above 5% on {{ $labels.job }}"
+          description: "{{ $value | humanizePercentage }} of requests are returning 5xx on {{ $labels.instance }}."

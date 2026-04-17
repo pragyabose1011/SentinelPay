@@ -2,6 +2,9 @@ package com.sentinelpay.payment.service;
 
 import com.sentinelpay.payment.domain.OutboxEvent;
 import com.sentinelpay.payment.repository.OutboxEventRepository;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
@@ -27,29 +30,41 @@ import java.util.stream.Collectors;
  * <p><b>Guarantees:</b> at-least-once delivery — the outbox row is only marked processed
  * after the Kafka send completes. A crash between send and mark will re-publish on the next
  * poll cycle; consumers must be idempotent.
+ *
+ * <p><b>Metrics exported:</b>
+ * <ul>
+ *   <li>{@code sentinelpay.outbox.parked} — gauge: events parked due to repeated failures</li>
+ *   <li>{@code sentinelpay.outbox.publish.errors} — counter: Kafka publish failures</li>
+ * </ul>
  */
 @Service
 @Slf4j
 public class OutboxPublisherService {
 
-    private static final int BATCH_SIZE = 100;
-
-    /** Initial backoff after the first failure (1 second). */
+    private static final int  BATCH_SIZE       = 100;
     private static final long INITIAL_BACKOFF_MS = 1_000L;
+    private static final long MAX_BACKOFF_MS     = 300_000L;
 
-    /** Maximum backoff between retries (5 minutes). */
-    private static final long MAX_BACKOFF_MS = 300_000L;
-
-    private final OutboxEventRepository outboxEventRepository;
+    private final OutboxEventRepository      outboxEventRepository;
     private final KafkaTemplate<String, String> kafkaTemplate;
+    private final Counter                    publishErrorCounter;
 
     @Value("${sentinelpay.outbox.max-retries:5}")
     private int maxRetries;
 
     public OutboxPublisherService(OutboxEventRepository outboxEventRepository,
-                                  KafkaTemplate<String, String> kafkaTemplate) {
+                                  KafkaTemplate<String, String> kafkaTemplate,
+                                  MeterRegistry meterRegistry) {
         this.outboxEventRepository = outboxEventRepository;
-        this.kafkaTemplate = kafkaTemplate;
+        this.kafkaTemplate         = kafkaTemplate;
+
+        this.publishErrorCounter = Counter.builder("sentinelpay.outbox.publish.errors")
+                .description("Number of failed outbox Kafka publish attempts")
+                .register(meterRegistry);
+
+        Gauge.builder("sentinelpay.outbox.parked", outboxEventRepository, repo -> (double) repo.countByParkedTrue())
+                .description("Number of outbox events parked after exceeding max retries")
+                .register(meterRegistry);
     }
 
     @Scheduled(fixedDelayString = "${sentinelpay.outbox.poll-interval-ms:5000}")
@@ -76,16 +91,13 @@ public class OutboxPublisherService {
         }
     }
 
-    /**
-     * Attempts to send the event to Kafka.
-     *
-     * @return {@code true} if the send succeeded, {@code false} otherwise
-     */
     private boolean sendToKafka(OutboxEvent event) {
         try {
             kafkaTemplate.send(event.getTopic(), event.getAggregateId(), event.getPayload()).get();
             return true;
         } catch (Exception e) {
+            publishErrorCounter.increment();
+
             int newRetryCount = event.getRetryCount() + 1;
             event.setRetryCount(newRetryCount);
 

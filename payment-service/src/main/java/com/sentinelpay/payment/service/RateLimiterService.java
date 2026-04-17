@@ -2,6 +2,7 @@ package com.sentinelpay.payment.service;
 
 import com.sentinelpay.payment.exception.RateLimitExceededException;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.micrometer.core.instrument.MeterRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -32,6 +33,8 @@ public class RateLimiterService {
     @Qualifier("rateLimiterScript")
     private final DefaultRedisScript<Long> rateLimiterScript;
 
+    private final MeterRegistry meterRegistry;
+
     /**
      * When {@code true} (default), Redis unavailability allows requests through.
      * Set to {@code false} in environments where strict rate enforcement is required
@@ -60,6 +63,7 @@ public class RateLimiterService {
 
         if (result == null || result == 0L) {
             log.warn("Rate limit exceeded for wallet={}", senderWalletId);
+            meterRegistry.counter("sentinelpay.rate_limit.exceeded").increment();
             throw new RateLimitExceededException(
                     "Payment rate limit exceeded: max " + MAX_PAYMENTS_PER_MINUTE
                             + " payments per minute.");

@@ -35,4 +35,7 @@ public interface OutboxEventRepository extends JpaRepository<OutboxEvent, UUID> 
     long countByProcessedFalse();
 
     long countByProcessedTrue();
+
+    /** Count events parked due to repeated publish failures — exposed as a Prometheus gauge. */
+    long countByParkedTrue();
 }

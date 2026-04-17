@@ -58,7 +58,7 @@ public class SecurityConfig {
                         "/api/v1/auth/refresh",
                         "/api/v1/auth/forgot-password",
                         "/api/v1/auth/reset-password").permitAll()
-                .requestMatchers("/actuator/health", "/actuator/info").permitAll()
+                .requestMatchers("/actuator/health", "/actuator/info", "/actuator/prometheus", "/actuator/metrics").permitAll()
                 .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
                 .anyRequest().authenticated()
             )

@@ -11,6 +11,8 @@ import com.sentinelpay.payment.dto.ReversalRequest;
 import com.sentinelpay.payment.repository.OutboxEventRepository;
 import com.sentinelpay.payment.repository.TransactionRepository;
 import com.sentinelpay.payment.repository.WalletRepository;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -62,6 +64,7 @@ public class PaymentService {
     private final FraudScoringService     fraudScoringService;
     private final ExchangeRateService     exchangeRateService;
     private final RedisTemplate<String, String> redisTemplate;
+    private final MeterRegistry           meterRegistry;
 
     @Value("${sentinelpay.kyc.transfer-limit:500000}")
     private BigDecimal kycTransferLimit;
@@ -110,11 +113,25 @@ public class PaymentService {
             throw new IllegalStateException(
                     "A payment is already being processed for this wallet — please retry shortly.");
         }
+        Timer.Sample sample = Timer.start(meterRegistry);
+        String outcome = "success";
         try {
             PaymentResponse response = doProcessPayment(request);
             cacheIdempotentResponse(request.getIdempotencyKey(), response);
+            meterRegistry.counter("sentinelpay.payments.total",
+                    "type", request.getType().name(), "outcome", "success").increment();
             return response;
+        } catch (Exception e) {
+            outcome = "error";
+            meterRegistry.counter("sentinelpay.payments.total",
+                    "type", request.getType() != null ? request.getType().name() : "UNKNOWN",
+                    "outcome", "error").increment();
+            throw e;
         } finally {
+            sample.stop(Timer.builder("sentinelpay.payment.duration")
+                    .tag("type", request.getType() != null ? request.getType().name() : "UNKNOWN")
+                    .tag("outcome", outcome)
+                    .register(meterRegistry));
             distributedLockService.unlock(request.getSenderWalletId().toString(), lockToken);
         }
     }
@@ -183,6 +200,7 @@ public class PaymentService {
         reversal = transactionRepository.save(reversal);
         publishOutboxEvent(reversal);
 
+        meterRegistry.counter("sentinelpay.payments.total", "type", "REVERSAL", "outcome", "success").increment();
         log.info("Reversal completed: reversalId={} originalId={}", reversal.getId(), transactionId);
         return PaymentResponse.from(reversal);
     }
