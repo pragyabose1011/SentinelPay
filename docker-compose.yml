@@ -13,6 +13,9 @@ x-common-env: &common-env
   JWT_REFRESH_EXPIRATION_MS: ${JWT_REFRESH_EXPIRATION_MS}
   MAIL_HOST: mailhog
   MAIL_PORT: 1025
+  MAIL_FROM: noreply@sentinelpay.local
+  MAIL_SMTP_AUTH: "false"
+  MAIL_SMTP_STARTTLS: "false"
 
 x-app-healthcheck: &app-healthcheck
   interval: 15s

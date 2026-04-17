@@ -13,13 +13,19 @@ data:
   KYC_DATASOURCE_URL: "jdbc:postgresql://sentinelpay-postgres-rw.sentinelpay.svc.cluster.local:5432/sentinelpay_kyc"
 
   # ---- Redis ------------------------------------------------------------------
+  # Sentinel mode is used in K8s (standalone host/port ignored when sentinel nodes are set)
   REDIS_HOST: "sentinelpay-redis.sentinelpay.svc.cluster.local"
   REDIS_PORT: "6379"
+  REDIS_SENTINEL_MASTER: "mymaster"
+  REDIS_SENTINEL_NODES: "sentinelpay-redis-sentinel.sentinelpay.svc.cluster.local:26379"
 
-  # ---- Mail (set MAIL_HOST to your SMTP provider in prod) --------------------
+  # ---- Mail (set to real SMTP provider values in prod) -----------------------
   MAIL_HOST: "smtp.sendgrid.net"
   MAIL_PORT: "587"
   MAIL_FROM: "noreply@sentinelpay.com"
+  MAIL_SMTP_AUTH: "true"
+  MAIL_SMTP_STARTTLS: "true"
+  # MAIL_USERNAME and MAIL_PASSWORD come from the Secret
 
   # ---- Service ports ----------------------------------------------------------
   PAYMENT_SERVER_PORT: "8081"

@@ -13,6 +13,8 @@ metadata:
   labels:
     strimzi.io/cluster: sentinelpay
 spec:
+  # K8s resource names can't contain dots, so topicName sets the actual Kafka topic name
+  topicName: payment.transactions
   partitions: 3
   replicas: 3
   config:

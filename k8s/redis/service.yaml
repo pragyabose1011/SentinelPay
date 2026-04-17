@@ -4,29 +4,52 @@ metadata:
   name: sentinelpay-redis
   namespace: sentinelpay
   labels:
-    app.kubernetes.io/name: redis
+    app.kubernetes.io/name: sentinelpay-redis
     app.kubernetes.io/part-of: sentinelpay
 spec:
   type: ClusterIP
   selector:
-    app.kubernetes.io/name: redis
+    app.kubernetes.io/name: sentinelpay-redis
     app.kubernetes.io/part-of: sentinelpay
   ports:
     - port: 6379
       targetPort: 6379
       name: redis
 ---
-# Headless service used by the StatefulSet for pod identity
+# Headless service — required for StatefulSet pod DNS (pod-0.sentinelpay-redis-headless…)
 apiVersion: v1
 kind: Service
 metadata:
   name: sentinelpay-redis-headless
   namespace: sentinelpay
+  labels:
+    app.kubernetes.io/name: sentinelpay-redis
+    app.kubernetes.io/part-of: sentinelpay
 spec:
   clusterIP: None
   selector:
-    app.kubernetes.io/name: redis
+    app.kubernetes.io/name: sentinelpay-redis
     app.kubernetes.io/part-of: sentinelpay
   ports:
     - port: 6379
       targetPort: 6379
+      name: redis
+---
+# Sentinel service — Spring Boot connects here for automatic master discovery
+apiVersion: v1
+kind: Service
+metadata:
+  name: sentinelpay-redis-sentinel
+  namespace: sentinelpay
+  labels:
+    app.kubernetes.io/name: sentinelpay-redis-sentinel
+    app.kubernetes.io/part-of: sentinelpay
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: sentinelpay-redis-sentinel
+    app.kubernetes.io/part-of: sentinelpay
+  ports:
+    - port: 26379
+      targetPort: 26379
+      name: sentinel

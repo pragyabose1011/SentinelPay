@@ -1,0 +1,37 @@
+# ---------------------------------------------------------------------------
+# Sealed Secrets controller — cluster-scoped, lives in kube-system.
+#
+# The controller holds the private key that decrypts SealedSecret resources.
+# Once installed, use `kubeseal` (see scripts/seal-secrets.sh) to encrypt
+# k8s/config/secret-template.yaml into a SealedSecret that is safe to commit.
+#
+# Install via Helm (recommended — gets you automated key rotation):
+#   helm repo add sealed-secrets https://bitnami-labs.github.io/sealed-secrets
+#   helm repo update
+#   helm upgrade --install sealed-secrets sealed-secrets/sealed-secrets \
+#     --namespace kube-system \
+#     --set fullnameOverride=sealed-secrets-controller
+#
+# Or apply this manifest directly for a minimal install:
+# ---------------------------------------------------------------------------
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kube-system   # controller lives here so it can manage secrets cluster-wide
+
+---
+# The controller deployment is maintained upstream; apply the latest release manifest:
+#   kubectl apply -f https://github.com/bitnami-labs/sealed-secrets/releases/latest/download/controller.yaml
+#
+# Pin to a specific version for reproducibility, e.g.:
+#   kubectl apply -f https://github.com/bitnami-labs/sealed-secrets/releases/download/v0.26.3/controller.yaml
+#
+# After install, fetch the public certificate for offline sealing:
+#   kubeseal --fetch-cert \
+#     --controller-name=sealed-secrets-controller \
+#     --controller-namespace=kube-system \
+#     > k8s/sealed-secrets/pub-cert.pem
+#
+# NOTE: pub-cert.pem is safe to commit — it is the PUBLIC key only.
+# The private key never leaves the cluster.

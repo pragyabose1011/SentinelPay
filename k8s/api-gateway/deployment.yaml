@@ -23,6 +23,11 @@ spec:
         app.kubernetes.io/name: api-gateway
         app.kubernetes.io/component: gateway
         app.kubernetes.io/part-of: sentinelpay
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/actuator/prometheus"
+        prometheus.io/port: "8443"
+        prometheus.io/scheme: "https"
     spec:
       terminationGracePeriodSeconds: 60
       containers:
@@ -80,6 +85,11 @@ spec:
                 secretKeyRef:
                   name: sentinelpay-secrets
                   key: SSL_KEYSTORE_PASSWORD
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: sentinelpay-config
+                  key: OTEL_EXPORTER_OTLP_ENDPOINT
             # ConfigMap entries not directly used by gateway but passed via common-env
             - name: KAFKA_BOOTSTRAP_SERVERS
               valueFrom:

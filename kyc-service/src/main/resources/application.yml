@@ -40,6 +40,11 @@ management:
     web:
       exposure:
         include: health, info, metrics, prometheus
+  health:
+    livenessState:
+      enabled: true
+    readinessState:
+      enabled: true
   tracing:
     sampling:
       probability: 1.0

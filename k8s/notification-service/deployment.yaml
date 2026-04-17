@@ -72,6 +72,26 @@ spec:
                 configMapKeyRef:
                   name: sentinelpay-config
                   key: MAIL_FROM
+            - name: MAIL_SMTP_AUTH
+              valueFrom:
+                configMapKeyRef:
+                  name: sentinelpay-config
+                  key: MAIL_SMTP_AUTH
+            - name: MAIL_SMTP_STARTTLS
+              valueFrom:
+                configMapKeyRef:
+                  name: sentinelpay-config
+                  key: MAIL_SMTP_STARTTLS
+            - name: MAIL_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: sentinelpay-secrets
+                  key: MAIL_USERNAME
+            - name: MAIL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: sentinelpay-secrets
+                  key: MAIL_PASSWORD
             - name: DATASOURCE_USERNAME
               valueFrom:
                 secretKeyRef:

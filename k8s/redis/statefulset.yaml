@@ -1,37 +1,95 @@
+# ---------------------------------------------------------------------------
+# Redis HA — 1 master + 2 replicas with Redis Sentinel (3 sentinels).
+#
+# Pod ordinal 0 starts as master. Pods 1 and 2 start as replicas and
+# replicate from pod 0 via the headless DNS name.
+# Sentinel monitors the master and promotes a replica on failure.
+#
+# Spring Boot switches to Sentinel mode automatically when
+# spring.data.redis.sentinel.nodes is non-empty (see application.yml).
+# ---------------------------------------------------------------------------
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-scripts
+  namespace: sentinelpay
+data:
+  # init.sh runs inside an init container to write the final redis.conf
+  init.sh: |
+    #!/bin/sh
+    set -e
+    ORDINAL=$(hostname | awk -F'-' '{print $NF}')
+    cp /config-template/redis.conf /data/redis.conf
+
+    if [ "$ORDINAL" = "0" ]; then
+      echo "Starting as master (ordinal 0)"
+    else
+      MASTER_HOST="sentinelpay-redis-0.sentinelpay-redis-headless.sentinelpay.svc.cluster.local"
+      echo "Starting as replica of $MASTER_HOST"
+      echo "replicaof $MASTER_HOST 6379" >> /data/redis.conf
+    fi
+
+  redis.conf: |
+    appendonly yes
+    appendfsync everysec
+    maxmemory 256mb
+    maxmemory-policy allkeys-lru
+    # Require auth in production — set via REDIS_PASSWORD env var
+    # requirepass will be appended by the init container if REDIS_PASSWORD is set
+
+  sentinel.conf: |
+    sentinel monitor mymaster sentinelpay-redis-0.sentinelpay-redis-headless.sentinelpay.svc.cluster.local 6379 2
+    sentinel down-after-milliseconds mymaster 5000
+    sentinel failover-timeout mymaster 60000
+    sentinel parallel-syncs mymaster 1
+    # sentinel auth-pass mymaster REDIS_PASSWORD_PLACEHOLDER (set via init if password is configured)
+
+---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: sentinelpay-redis
   namespace: sentinelpay
   labels:
-    app.kubernetes.io/name: redis
+    app.kubernetes.io/name: sentinelpay-redis
+    app.kubernetes.io/component: cache
     app.kubernetes.io/part-of: sentinelpay
 spec:
   serviceName: sentinelpay-redis-headless
-  replicas: 1   # scale to 3 + add Redis Sentinel for HA in production
+  replicas: 3
   selector:
     matchLabels:
-      app.kubernetes.io/name: redis
-      app.kubernetes.io/part-of: sentinelpay
+      app.kubernetes.io/name: sentinelpay-redis
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: redis
+        app.kubernetes.io/name: sentinelpay-redis
+        app.kubernetes.io/component: cache
         app.kubernetes.io/part-of: sentinelpay
     spec:
+      initContainers:
+        - name: init-redis
+          image: redis:7-alpine
+          command: ["/bin/sh", "/scripts/init.sh"]
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: sentinelpay-secrets
+                  key: REDIS_PASSWORD
+                  optional: true
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+            - name: config-template
+              mountPath: /config-template
+            - name: redis-data
+              mountPath: /data
       containers:
         - name: redis
           image: redis:7-alpine
-          command:
-            - redis-server
-            - --appendonly
-            - "yes"
-            - --appendfsync
-            - everysec
-            - --maxmemory
-            - "256mb"
-            - --maxmemory-policy
-            - allkeys-lru
+          command: ["redis-server", "/data/redis.conf"]
           ports:
             - containerPort: 6379
               name: redis
@@ -56,6 +114,20 @@ spec:
           volumeMounts:
             - name: redis-data
               mountPath: /data
+      volumes:
+        - name: scripts
+          configMap:
+            name: redis-scripts
+            items:
+              - key: init.sh
+                path: init.sh
+                mode: 0755
+        - name: config-template
+          configMap:
+            name: redis-scripts
+            items:
+              - key: redis.conf
+                path: redis.conf
   volumeClaimTemplates:
     - metadata:
         name: redis-data
@@ -64,3 +136,98 @@ spec:
         resources:
           requests:
             storage: 2Gi
+
+---
+# Sentinel — 3 replicas, each monitoring the Redis master.
+# Quorum = 2: any 2 sentinels must agree before triggering a failover.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sentinelpay-redis-sentinel
+  namespace: sentinelpay
+  labels:
+    app.kubernetes.io/name: sentinelpay-redis-sentinel
+    app.kubernetes.io/component: cache
+    app.kubernetes.io/part-of: sentinelpay
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sentinelpay-redis-sentinel
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sentinelpay-redis-sentinel
+        app.kubernetes.io/component: cache
+        app.kubernetes.io/part-of: sentinelpay
+    spec:
+      initContainers:
+        # Write a fresh sentinel.conf to a writable location (sentinel rewrites its config at runtime)
+        - name: init-sentinel
+          image: redis:7-alpine
+          command:
+            - /bin/sh
+            - -c
+            - |
+              cp /config-template/sentinel.conf /sentinel-data/sentinel.conf
+              # Optionally append auth-pass if password is set
+              if [ -n "$REDIS_PASSWORD" ]; then
+                echo "sentinel auth-pass mymaster $REDIS_PASSWORD" >> /sentinel-data/sentinel.conf
+              fi
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: sentinelpay-secrets
+                  key: REDIS_PASSWORD
+                  optional: true
+          volumeMounts:
+            - name: config-template
+              mountPath: /config-template
+            - name: sentinel-data
+              mountPath: /sentinel-data
+      containers:
+        - name: sentinel
+          image: redis:7-alpine
+          command: ["redis-sentinel", "/sentinel-data/sentinel.conf"]
+          ports:
+            - containerPort: 26379
+              name: sentinel
+          livenessProbe:
+            exec:
+              command: ["redis-cli", "-p", "26379", "ping"]
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "-p", "26379", "ping"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+          volumeMounts:
+            - name: sentinel-data
+              mountPath: /sentinel-data
+      volumes:
+        - name: config-template
+          configMap:
+            name: redis-scripts
+            items:
+              - key: sentinel.conf
+                path: sentinel.conf
+        - name: sentinel-data
+          emptyDir: {}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: sentinelpay-redis-sentinel
+                topologyKey: topology.kubernetes.io/zone

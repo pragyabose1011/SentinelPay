@@ -1,0 +1,151 @@
+---
+# Jaeger all-in-one — suitable for small/medium production.
+# For high-scale, use the Jaeger Operator with separate collector/query/storage.
+# Traces are stored in-memory by default; swap to Elasticsearch/Cassandra for persistence.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jaeger
+  namespace: sentinelpay
+  labels:
+    app.kubernetes.io/name: jaeger
+    app.kubernetes.io/component: observability
+    app.kubernetes.io/part-of: sentinelpay
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: jaeger
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: jaeger
+        app.kubernetes.io/component: observability
+        app.kubernetes.io/part-of: sentinelpay
+    spec:
+      containers:
+        - name: jaeger
+          image: jaegertracing/all-in-one:1.57
+          env:
+            - name: COLLECTOR_OTLP_ENABLED
+              value: "true"
+            # Storage backend: "elasticsearch" (production) or "badger" (single-node dev).
+            # Switch by changing SPAN_STORAGE_TYPE and uncommenting the matching block.
+            - name: SPAN_STORAGE_TYPE
+              value: elasticsearch
+            # --- Elasticsearch storage (production) ---
+            - name: ES_SERVER_URLS
+              value: "http://elasticsearch.sentinelpay.svc.cluster.local:9200"
+            - name: ES_NUM_SHARDS
+              value: "1"
+            - name: ES_NUM_REPLICAS
+              value: "0"   # set to 1 when running 3-node ES cluster
+            # --- Badger storage (dev / single-node fallback) ---
+            # - name: SPAN_STORAGE_TYPE
+            #   value: badger
+            # - name: BADGER_EPHEMERAL
+            #   value: "false"
+            # - name: BADGER_DIRECTORY_VALUE
+            #   value: /badger/data
+            # - name: BADGER_DIRECTORY_KEY
+            #   value: /badger/key
+          ports:
+            - containerPort: 16686
+              name: ui
+            - containerPort: 4317
+              name: otlp-grpc
+            - containerPort: 4318
+              name: otlp-http
+            - containerPort: 14250
+              name: grpc
+            - containerPort: 9411
+              name: zipkin
+          volumeMounts:
+            - name: badger-data
+              mountPath: /badger
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 14269
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 14269
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+      volumes:
+        - name: badger-data
+          persistentVolumeClaim:
+            claimName: jaeger-pvc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jaeger-pvc
+  namespace: sentinelpay
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger
+  namespace: sentinelpay
+  labels:
+    app.kubernetes.io/name: jaeger
+spec:
+  selector:
+    app.kubernetes.io/name: jaeger
+  ports:
+    - name: ui
+      port: 16686
+      targetPort: ui
+    - name: otlp-grpc
+      port: 4317
+      targetPort: otlp-grpc
+    - name: otlp-http
+      port: 4318
+      targetPort: otlp-http
+    - name: grpc
+      port: 14250
+      targetPort: grpc
+    - name: zipkin
+      port: 9411
+      targetPort: zipkin
+---
+# Expose Jaeger UI inside the cluster for internal access.
+# To expose externally, add an Ingress or change to LoadBalancer.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: jaeger-ui
+  namespace: sentinelpay
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    # Restrict to internal IPs or VPN CIDR in production
+    nginx.ingress.kubernetes.io/whitelist-source-range: "10.0.0.0/8,172.16.0.0/12"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: jaeger.sentinelpay.internal
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: jaeger
+                port:
+                  name: ui

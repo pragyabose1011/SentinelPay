@@ -1,0 +1,90 @@
+# ---------------------------------------------------------------------------
+# Loki simple-scalable Helm values
+# Use this when log volume exceeds ~50 GB/day or you need HA log ingestion.
+#
+# Install:
+#   helm repo add grafana https://grafana.github.io/helm-charts
+#   helm repo update
+#   helm upgrade --install loki grafana/loki \
+#     --namespace sentinelpay \
+#     --values k8s/observability/loki-scalable-values.yaml
+#
+# The plain loki.yaml in this directory is the single-binary deployment
+# used until log volume justifies this upgrade.
+# ---------------------------------------------------------------------------
+
+deploymentMode: SimpleScalable
+
+loki:
+  auth_enabled: false
+  commonConfig:
+    replication_factor: 2
+  storage:
+    type: s3
+    s3:
+      # Replace with your S3 bucket details (or use MinIO in-cluster)
+      endpoint: ""
+      region: ap-south-1
+      bucketNames:
+        chunks: sentinelpay-loki-chunks
+        ruler: sentinelpay-loki-ruler
+        admin: sentinelpay-loki-admin
+      # Credentials via IRSA (recommended) or explicit keys below
+      # accessKeyId: ""
+      # secretAccessKey: ""
+  schemaConfig:
+    configs:
+      - from: "2024-01-01"
+        store: tsdb
+        object_store: s3
+        schema: v13
+        index:
+          prefix: loki_index_
+          period: 24h
+  limits_config:
+    retention_period: 720h   # 30 days
+    reject_old_samples: true
+    reject_old_samples_max_age: 168h
+
+# Write path: 2 replicas minimum for HA
+write:
+  replicas: 2
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# Read path: 2 replicas for HA query performance
+read:
+  replicas: 2
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# Backend (compactor, ruler, index-gateway): 1 replica is fine for small deployments
+backend:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# Disable single-binary (use the scalable components above)
+singleBinary:
+  replicas: 0
+
+# Keep Promtail pointed at the Loki gateway (same DNS, different port)
+gateway:
+  enabled: true
+  service:
+    port: 3100

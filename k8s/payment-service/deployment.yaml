@@ -58,6 +58,22 @@ spec:
                 configMapKeyRef:
                   name: sentinelpay-config
                   key: REDIS_PORT
+            - name: REDIS_SENTINEL_MASTER
+              valueFrom:
+                configMapKeyRef:
+                  name: sentinelpay-config
+                  key: REDIS_SENTINEL_MASTER
+            - name: REDIS_SENTINEL_NODES
+              valueFrom:
+                configMapKeyRef:
+                  name: sentinelpay-config
+                  key: REDIS_SENTINEL_NODES
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: sentinelpay-secrets
+                  key: REDIS_PASSWORD
+                  optional: true
             - name: SERVER_PORT
               valueFrom:
                 configMapKeyRef:
@@ -93,6 +109,26 @@ spec:
                 configMapKeyRef:
                   name: sentinelpay-config
                   key: MAIL_FROM
+            - name: MAIL_SMTP_AUTH
+              valueFrom:
+                configMapKeyRef:
+                  name: sentinelpay-config
+                  key: MAIL_SMTP_AUTH
+            - name: MAIL_SMTP_STARTTLS
+              valueFrom:
+                configMapKeyRef:
+                  name: sentinelpay-config
+                  key: MAIL_SMTP_STARTTLS
+            - name: MAIL_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: sentinelpay-secrets
+                  key: MAIL_USERNAME
+            - name: MAIL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: sentinelpay-secrets
+                  key: MAIL_PASSWORD
             - name: RAZORPAY_ENABLED
               valueFrom:
                 configMapKeyRef:

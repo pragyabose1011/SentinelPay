@@ -52,21 +52,30 @@ spring:
       auto-offset-reset: earliest
       enable-auto-commit: false
 
-  # Mail (password-reset emails; Mailhog in dev)
+  # Mail (password-reset emails; Mailhog in dev, real SMTP in prod)
   mail:
     host: ${MAIL_HOST:localhost}
     port: ${MAIL_PORT:1025}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
     properties:
-      mail.smtp.auth: false
-      mail.smtp.starttls.enable: false
+      mail.smtp.auth: ${MAIL_SMTP_AUTH:false}
+      mail.smtp.starttls.enable: ${MAIL_SMTP_STARTTLS:false}
 
   # Redis (rate limiting, distributed locks, idempotency cache)
+  # Standalone mode (dev/docker-compose): set REDIS_HOST + REDIS_PORT.
+  # Sentinel mode (K8s prod): set REDIS_SENTINEL_MASTER + REDIS_SENTINEL_NODES.
+  # Spring Boot picks sentinel mode automatically when sentinel.nodes is non-empty.
   data:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD:}
       timeout: 2000ms
+      sentinel:
+        master: ${REDIS_SENTINEL_MASTER:}
+        nodes: ${REDIS_SENTINEL_NODES:}
+        password: ${REDIS_PASSWORD:}
       lettuce:
         pool:
           max-active: 20
@@ -84,6 +93,14 @@ management:
   endpoint:
     health:
       show-details: when-authorized
+      # Expose /actuator/health/liveness and /actuator/health/readiness
+      # (Spring Boot auto-enables these when KUBERNETES_SERVICE_HOST is set,
+      # but explicit config avoids surprises in non-standard environments)
+  health:
+    livenessState:
+      enabled: true
+    readinessState:
+      enabled: true
   tracing:
     sampling:
       probability: 1.0   # 100% in dev; reduce to 0.1 in prod

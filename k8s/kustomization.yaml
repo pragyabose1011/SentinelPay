@@ -1,0 +1,72 @@
+# Apply the entire platform with: kubectl apply -k k8s/
+#
+# Dependency ordering matters — apply in roughly this sequence manually
+# the first time (operators must be ready before CRDs are used):
+#   1. namespace.yaml
+#   2. resource-quota.yaml
+#   3. config/
+#   4. postgres/ (CloudNativePG operator must be installed first)
+#   5. redis/
+#   6. kafka/ (Strimzi operator must be installed first)
+#   7. {payment,notification,kyc}-service/
+#   8. api-gateway/
+#   9. observability/
+#   10. ingress.yaml
+#   11. network-policies.yaml
+#
+# After the first apply, `kubectl apply -k k8s/` handles incremental updates.
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: sentinelpay
+
+resources:
+  # Cluster-scoped bootstrap
+  - namespace.yaml
+  - resource-quota.yaml
+
+  # Config & secrets template
+  - config/configmap.yaml
+  - config/secret-template.yaml
+
+  # Infrastructure
+  - postgres/cluster.yaml
+  - redis/statefulset.yaml
+  - redis/service.yaml
+  - kafka/kafka.yaml
+  - kafka/topics.yaml
+
+  # Application services
+  - payment-service/deployment.yaml
+  - payment-service/service.yaml
+  - payment-service/hpa.yaml
+  - payment-service/pdb.yaml
+
+  - notification-service/deployment.yaml
+  - notification-service/service.yaml
+  - notification-service/hpa.yaml
+  - notification-service/pdb.yaml
+
+  - kyc-service/deployment.yaml
+  - kyc-service/service.yaml
+  - kyc-service/hpa.yaml
+  - kyc-service/pdb.yaml
+
+  - api-gateway/deployment.yaml
+  - api-gateway/service.yaml
+  - api-gateway/hpa.yaml
+  - api-gateway/pdb.yaml
+
+  # Observability stack
+  - observability/prometheus.yaml
+  - observability/elasticsearch.yaml
+  - observability/loki.yaml
+  - observability/promtail.yaml
+  - observability/jaeger.yaml
+  - observability/grafana.yaml
+  - observability/grafana-dashboards-configmap.yaml
+
+  # Ingress + network security
+  - ingress.yaml
+  - network-policies.yaml

@@ -1,0 +1,53 @@
+---
+# Namespace-level resource ceiling — prevents one runaway workload from starving others.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: sentinelpay-quota
+  namespace: sentinelpay
+spec:
+  hard:
+    # Compute
+    requests.cpu: "8"
+    requests.memory: "16Gi"
+    limits.cpu: "20"
+    limits.memory: "32Gi"
+    # Object count safety valves
+    pods: "60"
+    services: "30"
+    persistentvolumeclaims: "20"
+    secrets: "40"
+    configmaps: "40"
+
+---
+# Pod-level defaults — any pod missing resource declarations gets these applied.
+# Prevents unbounded pods from consuming all available node resources.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: sentinelpay-limits
+  namespace: sentinelpay
+spec:
+  limits:
+    - type: Container
+      default:          # applied when limits are not specified
+        cpu: "500m"
+        memory: "512Mi"
+      defaultRequest:   # applied when requests are not specified
+        cpu: "100m"
+        memory: "128Mi"
+      max:              # hard ceiling per container
+        cpu: "2"
+        memory: "2Gi"
+      min:
+        cpu: "10m"
+        memory: "32Mi"
+    - type: Pod
+      max:
+        cpu: "4"
+        memory: "4Gi"
+    - type: PersistentVolumeClaim
+      max:
+        storage: "20Gi"
+      min:
+        storage: "1Gi"

@@ -1,0 +1,310 @@
+---
+# Default deny-all ingress for the sentinelpay namespace.
+# Every allowed flow must be explicitly whitelisted below.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: sentinelpay
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+
+---
+# api-gateway: accepts traffic from the ingress-nginx controller only.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-to-gateway
+  namespace: sentinelpay
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: api-gateway
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - port: 8443
+          protocol: TCP
+
+---
+# payment-service: accepts traffic from api-gateway and Razorpay webhook (via gateway).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-gateway-to-payment
+  namespace: sentinelpay
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: payment-service
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: api-gateway
+      ports:
+        - port: 8081
+          protocol: TCP
+
+---
+# notification-service: accepts traffic from api-gateway only.
+# Kafka events arrive via the notification-service's consumer (egress to Kafka broker).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-gateway-to-notification
+  namespace: sentinelpay
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: notification-service
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: api-gateway
+      ports:
+        - port: 8082
+          protocol: TCP
+
+---
+# kyc-service: accepts traffic from api-gateway only.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-gateway-to-kyc
+  namespace: sentinelpay
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: kyc-service
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: api-gateway
+      ports:
+        - port: 8083
+          protocol: TCP
+
+---
+# Redis: only payment-service needs direct access.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-payment-to-redis
+  namespace: sentinelpay
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: sentinelpay-redis
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: payment-service
+      ports:
+        - port: 6379
+          protocol: TCP
+
+---
+# Redis Sentinel: payment-service must reach sentinels for master discovery.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-payment-to-redis-sentinel
+  namespace: sentinelpay
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: sentinelpay-redis-sentinel
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: payment-service
+      ports:
+        - port: 26379
+          protocol: TCP
+    # Sentinels also talk to each other and to Redis pods
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: sentinelpay-redis-sentinel
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: sentinelpay-redis
+      ports:
+        - port: 26379
+          protocol: TCP
+
+---
+# Postgres: payment-service, notification-service, and kyc-service all need DB access.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-services-to-postgres
+  namespace: sentinelpay
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: sentinelpay-postgres
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - payment-service
+                  - notification-service
+                  - kyc-service
+      ports:
+        - port: 5432
+          protocol: TCP
+
+---
+# Kafka brokers: all app services produce/consume.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-services-to-kafka
+  namespace: sentinelpay
+spec:
+  podSelector:
+    matchLabels:
+      strimzi.io/cluster: sentinelpay-kafka
+      strimzi.io/kind: Kafka
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - payment-service
+                  - notification-service
+                  - kyc-service
+      ports:
+        - port: 9092
+          protocol: TCP
+
+---
+# Prometheus: scrapes all app pods via pod annotations.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-scrape
+  namespace: sentinelpay
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/part-of
+        operator: In
+        values: [sentinelpay]
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - port: 8081
+          protocol: TCP
+        - port: 8082
+          protocol: TCP
+        - port: 8083
+          protocol: TCP
+        - port: 8443
+          protocol: TCP
+
+---
+# Loki: accepts log pushes from Promtail DaemonSet pods (no app label — match all in namespace).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-promtail-to-loki
+  namespace: sentinelpay
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: loki
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: promtail
+      ports:
+        - port: 3100
+          protocol: TCP
+
+---
+# Jaeger: accepts OTLP pushes from all app services.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-services-to-jaeger
+  namespace: sentinelpay
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: jaeger
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - payment-service
+                  - notification-service
+                  - kyc-service
+                  - api-gateway
+      ports:
+        - port: 4317
+          protocol: TCP
+        - port: 4318
+          protocol: TCP
+
+---
+# Grafana: accessible from ingress-nginx only.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-to-grafana
+  namespace: sentinelpay
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: grafana
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - port: 3000
+          protocol: TCP
+    # Prometheus can also reach Grafana metrics endpoint
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - port: 3000
+          protocol: TCP
