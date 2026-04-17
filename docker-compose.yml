@@ -222,6 +222,7 @@ services:
       KYC_SERVICE_URL: http://kyc-service:8083
       NOTIFICATION_SERVICE_URL: http://notification-service:8082
       SERVER_PORT: 8443
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318/v1/traces
       SSL_ENABLED: "true"
       SSL_KEYSTORE_PASSWORD: ${SSL_KEYSTORE_PASSWORD}
     depends_on:

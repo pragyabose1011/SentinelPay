@@ -82,11 +82,6 @@ spec:
                 secretKeyRef:
                   name: sentinelpay-secrets
                   key: JWT_SECRET
-            - name: JWT_REFRESH_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: sentinelpay-secrets
-                  key: JWT_REFRESH_SECRET
           livenessProbe:
             httpGet:
               path: /actuator/health/liveness

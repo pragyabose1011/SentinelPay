@@ -13,6 +13,7 @@ import com.sentinelpay.payment.repository.WalletRepository;
 import com.sentinelpay.payment.service.*;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -44,6 +45,7 @@ import static org.mockito.Mockito.*;
  *
  * All monetary amounts are in INR (Indian Rupees).
  */
+@Tag("integration")
 @SpringBootTest
 @ActiveProfiles("test")
 @Testcontainers
