@@ -231,11 +231,39 @@ spec:
           protocol: TCP
 
 ---
-# Loki: accepts log pushes from Promtail DaemonSet pods (no app label — match all in namespace).
+# Loki gateway: Promtail pushes logs; Grafana queries via the gateway.
+# The Helm chart labels all Loki components with app.kubernetes.io/name: loki.
+# Promtail and Grafana both talk to loki-gateway (port 80) — the gateway
+# fans out internally to write/read/backend pods via the memberlist ring.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: allow-promtail-to-loki
+  name: allow-promtail-to-loki-gateway
+  namespace: sentinelpay
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: loki
+      app.kubernetes.io/component: gateway
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: promtail
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: grafana
+      ports:
+        - port: 80
+          protocol: TCP
+
+---
+# Loki internal traffic: write → backend (compactor), read ↔ backend (ring gossip).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-loki-internal
   namespace: sentinelpay
 spec:
   podSelector:
@@ -246,9 +274,34 @@ spec:
     - from:
         - podSelector:
             matchLabels:
-              app.kubernetes.io/name: promtail
+              app.kubernetes.io/name: loki
       ports:
-        - port: 3100
+        - port: 3100   # HTTP/gRPC between components
+          protocol: TCP
+        - port: 7946   # memberlist gossip ring
+          protocol: TCP
+        - port: 9095   # gRPC
+          protocol: TCP
+
+---
+# MinIO: only Loki components need access (read/write/backend fetch/store chunks).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-loki-to-minio
+  namespace: sentinelpay
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: minio
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: loki
+      ports:
+        - port: 9000
           protocol: TCP
 
 ---

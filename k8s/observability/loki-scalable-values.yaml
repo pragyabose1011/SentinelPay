@@ -1,37 +1,51 @@
 # ---------------------------------------------------------------------------
-# Loki simple-scalable Helm values
-# Use this when log volume exceeds ~50 GB/day or you need HA log ingestion.
+# Loki simple-scalable Helm values — production configuration.
+#
+# Uses MinIO (in-cluster S3) for chunk storage. Switch storage.s3.endpoint
+# to an external bucket (AWS S3, GCS via S3 gateway) when needed.
 #
 # Install:
 #   helm repo add grafana https://grafana.github.io/helm-charts
 #   helm repo update
+#
+#   MINIO_PASS=$(kubectl get secret sentinelpay-secrets \
+#     -n sentinelpay -o jsonpath='{.data.MINIO_ROOT_PASSWORD}' | base64 -d)
+#
 #   helm upgrade --install loki grafana/loki \
 #     --namespace sentinelpay \
-#     --values k8s/observability/loki-scalable-values.yaml
+#     --values k8s/observability/loki-scalable-values.yaml \
+#     --set loki.storage.s3.accessKeyId=minio \
+#     --set loki.storage.s3.secretAccessKey="$MINIO_PASS" \
+#     --wait
 #
-# The plain loki.yaml in this directory is the single-binary deployment
-# used until log volume justifies this upgrade.
+# Upgrade (no credential change needed):
+#   helm upgrade loki grafana/loki \
+#     --namespace sentinelpay \
+#     --values k8s/observability/loki-scalable-values.yaml \
+#     --reuse-values
 # ---------------------------------------------------------------------------
 
 deploymentMode: SimpleScalable
 
 loki:
   auth_enabled: false
+
   commonConfig:
     replication_factor: 2
+
   storage:
     type: s3
     s3:
-      # Replace with your S3 bucket details (or use MinIO in-cluster)
-      endpoint: ""
-      region: ap-south-1
+      endpoint: http://minio.sentinelpay.svc.cluster.local:9000
+      region: us-east-1          # MinIO ignores region but Loki requires it
+      s3ForcePathStyle: true     # required for MinIO (path-style vs virtual-hosted)
+      insecure: true             # HTTP inside the cluster; MinIO has no TLS here
       bucketNames:
         chunks: sentinelpay-loki-chunks
-        ruler: sentinelpay-loki-ruler
-        admin: sentinelpay-loki-admin
-      # Credentials via IRSA (recommended) or explicit keys below
-      # accessKeyId: ""
-      # secretAccessKey: ""
+        ruler:  sentinelpay-loki-ruler
+        admin:  sentinelpay-loki-admin
+      # accessKeyId and secretAccessKey passed via --set at install time
+
   schemaConfig:
     configs:
       - from: "2024-01-01"
@@ -41,14 +55,31 @@ loki:
         index:
           prefix: loki_index_
           period: 24h
+
   limits_config:
-    retention_period: 720h   # 30 days
+    retention_period: 720h       # 30 days
     reject_old_samples: true
     reject_old_samples_max_age: 168h
+    ingestion_rate_mb: 16
+    ingestion_burst_size_mb: 32
 
-# Write path: 2 replicas minimum for HA
+  compactor:
+    retention_enabled: true
+
+# ---------------------------------------------------------------------------
+# Write path — 2 replicas minimum for HA; spread across AZs
+# ---------------------------------------------------------------------------
 write:
   replicas: 2
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/component: write
+            topologyKey: topology.kubernetes.io/zone
   resources:
     requests:
       cpu: 100m
@@ -57,9 +88,20 @@ write:
       cpu: 500m
       memory: 512Mi
 
-# Read path: 2 replicas for HA query performance
+# ---------------------------------------------------------------------------
+# Read path — 2 replicas for HA query performance
+# ---------------------------------------------------------------------------
 read:
   replicas: 2
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/component: read
+            topologyKey: topology.kubernetes.io/zone
   resources:
     requests:
       cpu: 100m
@@ -68,7 +110,9 @@ read:
       cpu: 500m
       memory: 512Mi
 
-# Backend (compactor, ruler, index-gateway): 1 replica is fine for small deployments
+# ---------------------------------------------------------------------------
+# Backend — compactor, ruler, index-gateway (1 replica is fine)
+# ---------------------------------------------------------------------------
 backend:
   replicas: 1
   resources:
@@ -79,12 +123,23 @@ backend:
       cpu: 500m
       memory: 512Mi
 
-# Disable single-binary (use the scalable components above)
-singleBinary:
-  replicas: 0
-
-# Keep Promtail pointed at the Loki gateway (same DNS, different port)
+# ---------------------------------------------------------------------------
+# Gateway — single entry point for Promtail (push) and Grafana (query)
+# Exposed as loki-gateway.sentinelpay.svc.cluster.local:80
+# ---------------------------------------------------------------------------
 gateway:
   enabled: true
+  replicas: 2
   service:
-    port: 3100
+    port: 80
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+# Disable single-binary (we use the scalable components above)
+singleBinary:
+  replicas: 0

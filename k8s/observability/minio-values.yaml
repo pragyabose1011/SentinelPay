@@ -1,0 +1,47 @@
+# ---------------------------------------------------------------------------
+# MinIO — in-cluster S3-compatible object storage for Loki chunks.
+#
+# Install:
+#   helm repo add bitnami https://charts.bitnami.com/bitnami
+#   helm repo update
+#   helm upgrade --install minio bitnami/minio \
+#     --namespace sentinelpay \
+#     --values k8s/observability/minio-values.yaml \
+#     --set auth.rootPassword="$(kubectl get secret sentinelpay-secrets \
+#         -n sentinelpay -o jsonpath='{.data.MINIO_ROOT_PASSWORD}' | base64 -d)"
+#
+# Credentials: rootUser is hardcoded to "minio"; rootPassword comes from
+# sentinelpay-secrets.MINIO_ROOT_PASSWORD (see k8s/config/secret-template.yaml).
+# ---------------------------------------------------------------------------
+
+mode: standalone   # single pod; upgrade to distributed when >500 GB/day
+
+auth:
+  rootUser: minio
+  # rootPassword injected at install time via --set (never stored in this file)
+
+persistence:
+  enabled: true
+  size: 20Gi
+
+# Pre-create all three Loki buckets on first boot
+provisioning:
+  enabled: true
+  buckets:
+    - name: sentinelpay-loki-chunks
+    - name: sentinelpay-loki-ruler
+    - name: sentinelpay-loki-admin
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+service:
+  type: ClusterIP
+  ports:
+    api: 9000
+    console: 9001

@@ -52,7 +52,7 @@ A production-grade payment platform built with Spring Boot microservices, Kafka 
 | Messaging | Strimzi Kafka | 3 brokers, RF=3, min-ISR=2, DLT per topic |
 | Tracing | Jaeger (OTLP) | Elasticsearch persistent storage |
 | Metrics | Prometheus + Grafana | Pre-built ops dashboard |
-| Logs | Loki + Promtail | 30-day retention, pod autodiscovery |
+| Logs | Loki SimpleScalable + Promtail | 2 write + 2 read replicas, MinIO S3 storage, 30-day retention |
 | Ingress | ingress-nginx + cert-manager | Let's Encrypt TLS, HSTS |
 | Secrets | Sealed Secrets | Encrypted in git, decrypted in-cluster |
 

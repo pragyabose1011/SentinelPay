@@ -138,8 +138,52 @@ kubectl apply -f "$REPO_ROOT/k8s/notification-service/"
 kubectl apply -f "$REPO_ROOT/k8s/kyc-service/"
 kubectl apply -f "$REPO_ROOT/k8s/api-gateway/"
 
-log "Applying observability stack..."
-kubectl apply -f "$REPO_ROOT/k8s/observability/"
+log "Applying observability stack (Prometheus, Grafana, Jaeger, Elasticsearch, Promtail)..."
+kubectl apply -f "$REPO_ROOT/k8s/observability/prometheus.yaml"
+kubectl apply -f "$REPO_ROOT/k8s/observability/elasticsearch.yaml"
+kubectl apply -f "$REPO_ROOT/k8s/observability/jaeger.yaml"
+kubectl apply -f "$REPO_ROOT/k8s/observability/grafana-dashboards-configmap.yaml"
+kubectl apply -f "$REPO_ROOT/k8s/observability/grafana.yaml"
+
+# ---------------------------------------------------------------------------
+# MinIO — install first; Loki needs the buckets to exist before it starts
+# ---------------------------------------------------------------------------
+log "Installing MinIO (in-cluster S3 for Loki)..."
+helm repo add bitnami https://charts.bitnami.com/bitnami --force-update
+helm repo update
+
+MINIO_PASS=$(kubectl get secret sentinelpay-secrets \
+  -n sentinelpay -o jsonpath='{.data.MINIO_ROOT_PASSWORD}' | base64 -d)
+
+if [ -z "$MINIO_PASS" ]; then
+  die "MINIO_ROOT_PASSWORD not found in sentinelpay-secrets. Add it to secret-template.yaml and re-apply."
+fi
+
+helm upgrade --install minio bitnami/minio \
+  --namespace sentinelpay \
+  --values "$REPO_ROOT/k8s/observability/minio-values.yaml" \
+  --set auth.rootPassword="$MINIO_PASS" \
+  --wait
+
+# ---------------------------------------------------------------------------
+# Loki (SimpleScalable) — install after MinIO buckets are ready
+# ---------------------------------------------------------------------------
+log "Installing Loki (SimpleScalable via Helm)..."
+helm repo add grafana https://grafana.github.io/helm-charts --force-update
+helm repo update
+
+helm upgrade --install loki grafana/loki \
+  --namespace sentinelpay \
+  --values "$REPO_ROOT/k8s/observability/loki-scalable-values.yaml" \
+  --set loki.storage.s3.accessKeyId=minio \
+  --set loki.storage.s3.secretAccessKey="$MINIO_PASS" \
+  --wait
+
+# ---------------------------------------------------------------------------
+# Promtail — apply after Loki gateway is running
+# ---------------------------------------------------------------------------
+log "Applying Promtail DaemonSet..."
+kubectl apply -f "$REPO_ROOT/k8s/observability/promtail.yaml"
 
 log "Applying ingress and network policies..."
 kubectl apply -f "$REPO_ROOT/k8s/ingress.yaml"

@@ -120,7 +120,8 @@ data:
       filename: /run/promtail/positions.yaml
 
     clients:
-      - url: http://loki.sentinelpay.svc.cluster.local:3100/loki/api/v1/push
+      # loki-gateway is the single entry point created by the Loki Helm chart
+      - url: http://loki-gateway.sentinelpay.svc.cluster.local/loki/api/v1/push
 
     scrape_configs:
       - job_name: kubernetes-pods

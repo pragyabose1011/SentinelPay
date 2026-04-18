@@ -59,9 +59,10 @@ resources:
   - api-gateway/pdb.yaml
 
   # Observability stack
+  # NOTE: Loki and MinIO are installed via Helm (see scripts/bootstrap.sh).
+  #       loki.yaml is kept for reference only and is excluded here.
   - observability/prometheus.yaml
   - observability/elasticsearch.yaml
-  - observability/loki.yaml
   - observability/promtail.yaml
   - observability/jaeger.yaml
   - observability/grafana.yaml

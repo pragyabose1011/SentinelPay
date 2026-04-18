@@ -156,7 +156,7 @@ data:
       - name: Loki
         type: loki
         uid: loki
-        url: http://loki.sentinelpay.svc.cluster.local:3100
+        url: http://loki-gateway.sentinelpay.svc.cluster.local
         editable: false
   dashboards.yml: |
     apiVersion: 1
