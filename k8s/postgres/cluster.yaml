@@ -88,23 +88,33 @@ spec:
     podAntiAffinityType: preferred
 
   # ---------------------------------------------------------------------------
-  # WAL archiving → S3 (enables PITR and base backups)
-  # Uncomment and configure with your S3 bucket in production.
+  # WAL archiving → S3 (enables PITR — required for a payment platform).
+  # Credentials come from s3-backup-credentials secret (apply separately;
+  # use IAM role / IRSA in AWS instead of static keys where possible).
+  #
+  # Create the secret:
+  #   kubectl create secret generic s3-backup-credentials \
+  #     --from-literal=ACCESS_KEY_ID=<your-key> \
+  #     --from-literal=SECRET_ACCESS_KEY=<your-secret> \
+  #     -n sentinelpay
   # ---------------------------------------------------------------------------
-  # backup:
-  #   retentionPolicy: "7d"
-  #   barmanObjectStore:
-  #     destinationPath: "s3://sentinelpay-postgres-backup/wal"
-  #     s3Credentials:
-  #       accessKeyId:
-  #         name: s3-backup-credentials
-  #         key: ACCESS_KEY_ID
-  #       secretAccessKey:
-  #         name: s3-backup-credentials
-  #         key: SECRET_ACCESS_KEY
-  #     wal:
-  #       compression: gzip
-  #       maxParallel: 2
+  backup:
+    retentionPolicy: "30d"
+    barmanObjectStore:
+      destinationPath: "s3://sentinelpay-postgres-backup/wal"
+      s3Credentials:
+        accessKeyId:
+          name: s3-backup-credentials
+          key: ACCESS_KEY_ID
+        secretAccessKey:
+          name: s3-backup-credentials
+          key: SECRET_ACCESS_KEY
+      wal:
+        compression: gzip
+        maxParallel: 2
+      data:
+        compression: gzip
+        immediateCheckpoint: false
 
   # ---------------------------------------------------------------------------
   # Monitoring — exposes a PodMonitor for the Prometheus operator
@@ -118,17 +128,3 @@ spec:
   primaryUpdateStrategy: unsupervised   # allow automatic switchover during rolling updates
   primaryUpdateMethod: switchover
 
----
-# ---------------------------------------------------------------------------
-# Scheduled backup (daily, 02:00 UTC)
-# ---------------------------------------------------------------------------
-# apiVersion: postgresql.cnpg.io/v1
-# kind: ScheduledBackup
-# metadata:
-#   name: sentinelpay-postgres-daily
-#   namespace: sentinelpay
-# spec:
-#   schedule: "0 2 * * *"
-#   backupOwnerReference: self
-#   cluster:
-#     name: sentinelpay-postgres

@@ -31,7 +31,7 @@ spec:
       terminationGracePeriodSeconds: 60
       containers:
         - name: notification-service
-          image: ghcr.io/OWNER/sentinelpay-notification-service:latest
+          image: ghcr.io/pragyabose1011/sentinelpay-notification-service:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 8082

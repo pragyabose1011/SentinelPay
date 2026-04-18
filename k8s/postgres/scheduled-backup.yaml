@@ -1,0 +1,13 @@
+# CloudNativePG ScheduledBackup — daily at 02:00 UTC, retained for 30 days.
+# Requires the WAL archiving config in cluster.yaml to be active and the
+# s3-backup-credentials secret to exist before applying.
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: sentinelpay-postgres-daily
+  namespace: sentinelpay
+spec:
+  schedule: "0 2 * * *"
+  backupOwnerReference: self
+  cluster:
+    name: sentinelpay-postgres

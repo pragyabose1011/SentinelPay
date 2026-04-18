@@ -32,7 +32,7 @@ spec:
       terminationGracePeriodSeconds: 60
       containers:
         - name: api-gateway
-          image: ghcr.io/OWNER/sentinelpay-api-gateway:latest
+          image: ghcr.io/pragyabose1011/sentinelpay-api-gateway:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 8443

@@ -119,6 +119,7 @@ fi
 
 log "Applying infrastructure (Postgres, Redis, Kafka)..."
 kubectl apply -f "$REPO_ROOT/k8s/postgres/cluster.yaml"
+kubectl apply -f "$REPO_ROOT/k8s/postgres/scheduled-backup.yaml"
 kubectl apply -f "$REPO_ROOT/k8s/redis/statefulset.yaml"
 kubectl apply -f "$REPO_ROOT/k8s/redis/service.yaml"
 kubectl apply -f "$REPO_ROOT/k8s/kafka/kafka.yaml"

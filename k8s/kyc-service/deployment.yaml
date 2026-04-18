@@ -31,7 +31,7 @@ spec:
       terminationGracePeriodSeconds: 60
       containers:
         - name: kyc-service
-          image: ghcr.io/OWNER/sentinelpay-kyc-service:latest
+          image: ghcr.io/pragyabose1011/sentinelpay-kyc-service:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 8083

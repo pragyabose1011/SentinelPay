@@ -31,7 +31,7 @@ spec:
       terminationGracePeriodSeconds: 60   # allow in-flight requests to drain
       containers:
         - name: payment-service
-          image: ghcr.io/OWNER/sentinelpay-payment-service:latest
+          image: ghcr.io/pragyabose1011/sentinelpay-payment-service:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 8081

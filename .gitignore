@@ -19,5 +19,17 @@ Thumbs.db
 ### Secrets — never commit
 .env
 
+### Sealed secret output (contains encrypted real values — safe to commit
+### but only after verifying it contains no plaintext. Excluded by default
+### so it must be explicitly added: git add -f k8s/config/sealed-secret.yaml)
+k8s/config/sealed-secret.yaml
+
 ### TLS certificates (generated locally)
 docker/nginx/certs/
+
+### Production keystore — replace the committed dev keystore before deploying.
+### Generate: keytool -genkeypair -alias sentinelpay -keyalg RSA -keysize 2048
+###           -storetype PKCS12 -keystore keystore.p12 -validity 3650
+### Then set SSL_KEYSTORE_PASSWORD in sentinelpay-secrets.
+### DO NOT commit a production keystore to git.
+api-gateway/src/main/resources/keystore-prod.p12

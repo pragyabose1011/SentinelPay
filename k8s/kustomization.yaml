@@ -32,6 +32,7 @@ resources:
 
   # Infrastructure
   - postgres/cluster.yaml
+  - postgres/scheduled-backup.yaml
   - redis/statefulset.yaml
   - redis/service.yaml
   - kafka/kafka.yaml
