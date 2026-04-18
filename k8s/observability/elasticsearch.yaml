@@ -1,8 +1,15 @@
 # ---------------------------------------------------------------------------
-# Elasticsearch — single-node, used as Jaeger trace storage.
+# Elasticsearch — 3-node cluster, used as Jaeger trace storage.
 #
-# For production HA: scale to 3 nodes and set discovery.seed_hosts +
-# cluster.initial_master_nodes to all 3 pod DNS names.
+# A 3-node cluster provides:
+#   • Quorum-based master election (requires ≥2 nodes to elect a master)
+#   • Index replicas — Jaeger writes primary + 1 replica shard, so each
+#     index survives losing any single node without data loss
+#   • Cluster tolerates one simultaneous node/disk failure and remains writable
+#
+# Cluster discovery uses the headless service DNS as the seed host.
+# cluster.initial_master_nodes must list all pod names to bootstrap correctly;
+# after the cluster is formed the first time, this setting is ignored.
 # ---------------------------------------------------------------------------
 ---
 apiVersion: apps/v1
@@ -16,7 +23,7 @@ metadata:
     app.kubernetes.io/part-of: sentinelpay
 spec:
   serviceName: elasticsearch-headless
-  replicas: 1
+  replicas: 3
   selector:
     matchLabels:
       app.kubernetes.io/name: elasticsearch
@@ -37,22 +44,46 @@ spec:
       securityContext:
         fsGroup: 1000
         runAsUser: 1000
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: elasticsearch
+                topologyKey: topology.kubernetes.io/zone
       containers:
         - name: elasticsearch
           image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
           env:
-            - name: discovery.type
-              value: single-node
-            - name: ES_JAVA_OPTS
-              value: "-Xms512m -Xmx512m"
-            - name: xpack.security.enabled
-              value: "false"   # disable TLS/auth for in-cluster use; enable for internet-exposed clusters
+            # Cluster formation — DO NOT set discovery.type: single-node for multi-node clusters
             - name: cluster.name
               value: sentinelpay-traces
             - name: node.name
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+            # Seed hosts: the headless service resolves to all pod IPs
+            - name: discovery.seed_hosts
+              value: "elasticsearch-headless"
+            # List every pod name so any pod can bootstrap the cluster first
+            - name: cluster.initial_master_nodes
+              value: "elasticsearch-0,elasticsearch-1,elasticsearch-2"
+            - name: ES_JAVA_OPTS
+              value: "-Xms512m -Xmx512m"
+            - name: xpack.security.enabled
+              value: "false"   # disable TLS/auth for in-cluster use; enable for internet-exposed clusters
+            # Minimum master-eligible nodes required to elect — prevents split-brain
+            # (floor(3/2) + 1 = 2; ES 7+ sets this automatically, kept explicit for clarity)
+            - name: cluster.routing.allocation.disk.threshold_enabled
+              value: "true"
+            - name: cluster.routing.allocation.disk.watermark.low
+              value: "85%"
+            - name: cluster.routing.allocation.disk.watermark.high
+              value: "90%"
+            - name: cluster.routing.allocation.disk.watermark.flood_stage
+              value: "95%"
           ports:
             - containerPort: 9200
               name: http
@@ -60,6 +91,7 @@ spec:
               name: transport
           readinessProbe:
             httpGet:
+              # yellow = all primary shards assigned (replicas may still be relocating)
               path: /_cluster/health?wait_for_status=yellow&timeout=5s
               port: 9200
             initialDelaySeconds: 30
@@ -89,7 +121,9 @@ spec:
         resources:
           requests:
             storage: 20Gi
+
 ---
+# ClusterIP — Jaeger collector and query UI talk to this
 apiVersion: v1
 kind: Service
 metadata:
@@ -107,12 +141,16 @@ spec:
     - name: transport
       port: 9300
       targetPort: transport
+
 ---
+# Headless — used as the seed_hosts for cluster discovery and stable pod DNS
 apiVersion: v1
 kind: Service
 metadata:
   name: elasticsearch-headless
   namespace: sentinelpay
+  labels:
+    app.kubernetes.io/name: elasticsearch
 spec:
   clusterIP: None
   selector:

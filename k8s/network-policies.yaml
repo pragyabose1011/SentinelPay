@@ -305,6 +305,38 @@ spec:
           protocol: TCP
 
 ---
+# Elasticsearch intra-cluster: nodes gossip on transport port 9300 for shard
+# replication and master election. All 3 ES pods must reach each other.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-elasticsearch-internal
+  namespace: sentinelpay
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: elasticsearch
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: elasticsearch
+      ports:
+        - port: 9300
+          protocol: TCP
+        - port: 9200
+          protocol: TCP
+    # Jaeger collector and query must also reach port 9200
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: jaeger
+      ports:
+        - port: 9200
+          protocol: TCP
+
+---
 # Jaeger: accepts OTLP pushes from all app services.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

@@ -1,5 +1,9 @@
 # ---------------------------------------------------------------------------
-# MinIO — in-cluster S3-compatible object storage for Loki chunks.
+# MinIO — distributed mode, 4 pods with erasure coding.
+#
+# Erasure coding with 4 pods uses EC:2 (2 data + 2 parity shards).
+# The cluster tolerates losing any 2 pods simultaneously without data loss.
+# Total usable capacity = 2 × pod PVC size = 40 Gi (out of 80 Gi raw).
 #
 # Install:
 #   helm repo add bitnami https://charts.bitnami.com/bitnami
@@ -14,7 +18,11 @@
 # sentinelpay-secrets.MINIO_ROOT_PASSWORD (see k8s/config/secret-template.yaml).
 # ---------------------------------------------------------------------------
 
-mode: standalone   # single pod; upgrade to distributed when >500 GB/day
+mode: distributed
+
+statefulset:
+  replicaCount: 4        # minimum 4 for erasure coding; must be even
+  drivesPerNode: 1       # one PVC per pod
 
 auth:
   rootUser: minio
@@ -22,9 +30,10 @@ auth:
 
 persistence:
   enabled: true
-  size: 20Gi
+  size: 20Gi             # per pod — 80 Gi raw, 40 Gi usable after EC:2
 
-# Pre-create all three Loki buckets on first boot
+# Pre-create all three Loki buckets on first boot.
+# Provisioning runs as a post-install Job; it will retry until the cluster quorum is healthy.
 provisioning:
   enabled: true
   buckets:
