@@ -160,3 +160,131 @@ data:
         }
       ]
     }
+
+  infrastructure.json: |
+    {
+      "title": "SentinelPay \u2014 Infrastructure",
+      "uid": "sentinelpay-infra",
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "30s",
+      "time": { "from": "now-1h", "to": "now" },
+      "tags": ["sentinelpay", "infrastructure"],
+      "panels": [
+        {
+          "id": 1,
+          "title": "JVM Heap Used",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            { "expr": "jvm_memory_used_bytes{area=\"heap\",job=~\"payment-service|notification-service|kyc-service\"}", "legendFormat": "{{job}} {{id}}" }
+          ],
+          "fieldConfig": { "defaults": { "unit": "bytes", "custom": { "lineWidth": 2 } } }
+        },
+        {
+          "id": 2,
+          "title": "JVM GC Pause Time (rate)",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            { "expr": "rate(jvm_gc_pause_seconds_sum{job=~\"payment-service|notification-service|kyc-service\"}[2m])", "legendFormat": "{{job}} {{cause}}" }
+          ],
+          "fieldConfig": { "defaults": { "unit": "s", "custom": { "lineWidth": 2 } } }
+        },
+        {
+          "id": 3,
+          "title": "HikariCP Active Connections",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            { "expr": "hikaricp_connections_active{job=~\"payment-service|notification-service|kyc-service\"}", "legendFormat": "{{job}} active" },
+            { "expr": "hikaricp_connections_pending{job=~\"payment-service|notification-service|kyc-service\"}", "legendFormat": "{{job}} pending" }
+          ],
+          "fieldConfig": { "defaults": { "unit": "short", "custom": { "lineWidth": 2 } } }
+        },
+        {
+          "id": 4,
+          "title": "HikariCP Connection Acquire Time (p95)",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            { "expr": "histogram_quantile(0.95, rate(hikaricp_connections_acquire_seconds_bucket{job=~\"payment-service|notification-service|kyc-service\"}[2m]))", "legendFormat": "{{job}} p95" }
+          ],
+          "fieldConfig": { "defaults": { "unit": "s", "custom": { "lineWidth": 2 } } }
+        },
+        {
+          "id": 5,
+          "title": "Notification Service \u2014 Request Rate by Status",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            { "expr": "sum by (status) (rate(http_server_requests_seconds_count{job=\"notification-service\"}[2m]))", "legendFormat": "{{status}}" }
+          ],
+          "fieldConfig": { "defaults": { "unit": "reqps", "custom": { "lineWidth": 2 } } }
+        },
+        {
+          "id": 6,
+          "title": "KYC Service \u2014 Request Rate by Status",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            { "expr": "sum by (status) (rate(http_server_requests_seconds_count{job=\"kyc-service\"}[2m]))", "legendFormat": "{{status}}" }
+          ],
+          "fieldConfig": { "defaults": { "unit": "reqps", "custom": { "lineWidth": 2 } } }
+        },
+        {
+          "id": 7,
+          "title": "Notification Service \u2014 Latency (p50/p95/p99)",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            { "expr": "histogram_quantile(0.50, rate(http_server_requests_seconds_bucket{job=\"notification-service\"}[2m]))", "legendFormat": "p50" },
+            { "expr": "histogram_quantile(0.95, rate(http_server_requests_seconds_bucket{job=\"notification-service\"}[2m]))", "legendFormat": "p95" },
+            { "expr": "histogram_quantile(0.99, rate(http_server_requests_seconds_bucket{job=\"notification-service\"}[2m]))", "legendFormat": "p99" }
+          ],
+          "fieldConfig": { "defaults": { "unit": "s", "custom": { "lineWidth": 2 } } }
+        },
+        {
+          "id": 8,
+          "title": "KYC Service \u2014 Latency (p50/p95/p99)",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            { "expr": "histogram_quantile(0.50, rate(http_server_requests_seconds_bucket{job=\"kyc-service\"}[2m]))", "legendFormat": "p50" },
+            { "expr": "histogram_quantile(0.95, rate(http_server_requests_seconds_bucket{job=\"kyc-service\"}[2m]))", "legendFormat": "p95" },
+            { "expr": "histogram_quantile(0.99, rate(http_server_requests_seconds_bucket{job=\"kyc-service\"}[2m]))", "legendFormat": "p99" }
+          ],
+          "fieldConfig": { "defaults": { "unit": "s", "custom": { "lineWidth": 2 } } }
+        },
+        {
+          "id": 9,
+          "title": "Logs \u2014 notification-service",
+          "type": "logs",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
+          "datasource": { "type": "loki", "uid": "loki" },
+          "targets": [
+            { "expr": "{service=\"notification-service\"}", "legendFormat": "" }
+          ],
+          "options": { "showTime": true, "sortOrder": "Descending", "wrapLogMessage": true }
+        },
+        {
+          "id": 10,
+          "title": "Logs \u2014 kyc-service",
+          "type": "logs",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
+          "datasource": { "type": "loki", "uid": "loki" },
+          "targets": [
+            { "expr": "{service=\"kyc-service\"}", "legendFormat": "" }
+          ],
+          "options": { "showTime": true, "sortOrder": "Descending", "wrapLogMessage": true }
+        }
+      ]
+    }

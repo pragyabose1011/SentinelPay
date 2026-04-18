@@ -39,6 +39,9 @@ spec:
               value: alertingSimplifiedRouting
             - name: GF_UNIFIED_ALERTING_ENABLED
               value: "true"
+            # Default home dashboard — provisioned from ConfigMap, so it survives PVC loss
+            - name: GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH
+              value: /var/lib/grafana/dashboards/sentinelpay.json
           volumeMounts:
             - name: provisioning
               mountPath: /etc/grafana/provisioning
@@ -165,5 +168,42 @@ data:
         folder: SentinelPay
         type: file
         disableDeletion: true
+        # allowUiUpdates: false prevents Grafana from saving UI edits back to the
+        # provisioned dashboard. Any dashboard change must go through the ConfigMap
+        # and be committed to git — the UI shows a read-only indicator.
+        allowUiUpdates: false
         options:
           path: /var/lib/grafana/dashboards
+
+  # ---------------------------------------------------------------------------
+  # Alerting — provision the Alertmanager contact point and default policy.
+  # Alert rules added in the UI are still saved to SQLite; export them via
+  # Grafana's "Export" button and store the JSON in this ConfigMap to make
+  # them durable.
+  # ---------------------------------------------------------------------------
+  alerting/contactpoints.yaml: |
+    apiVersion: 1
+    contactPoints:
+      - orgId: 1
+        name: Alertmanager
+        receivers:
+          - uid: alertmanager-receiver
+            type: prometheus-alertmanager
+            settings:
+              url: http://alertmanager.sentinelpay.svc.cluster.local:9093
+            disableResolveMessage: false
+
+  alerting/policies.yaml: |
+    apiVersion: 1
+    policies:
+      - orgId: 1
+        receiver: Alertmanager
+        group_by: [alertname, job, severity]
+        group_wait: 30s
+        group_interval: 5m
+        repeat_interval: 4h
+        routes:
+          - receiver: Alertmanager
+            matchers:
+              - severity = critical
+            repeat_interval: 1h
