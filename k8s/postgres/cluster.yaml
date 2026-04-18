@@ -33,8 +33,10 @@ spec:
       postInitSQL:
         - "CREATE DATABASE sentinelpay_notifications;"
         - "CREATE DATABASE sentinelpay_kyc;"
+        - "CREATE DATABASE grafana;"
         - "GRANT ALL PRIVILEGES ON DATABASE sentinelpay_notifications TO sentinelpay;"
         - "GRANT ALL PRIVILEGES ON DATABASE sentinelpay_kyc TO sentinelpay;"
+        - "GRANT ALL PRIVILEGES ON DATABASE grafana TO sentinelpay;"
 
   # ---------------------------------------------------------------------------
   # PostgreSQL configuration

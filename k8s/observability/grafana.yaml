@@ -42,13 +42,32 @@ spec:
             # Default home dashboard — provisioned from ConfigMap, so it survives PVC loss
             - name: GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH
               value: /var/lib/grafana/dashboards/sentinelpay.json
+            # ---------------------------------------------------------------------------
+            # Database — PostgreSQL instead of the default SQLite.
+            # Uses the same CloudNativePG cluster (rw endpoint) and sentinelpay user.
+            # Grafana's state (users, alert rules, API keys) is now in the same
+            # HA Postgres cluster that has WAL archiving + 30-day S3 backups.
+            # ---------------------------------------------------------------------------
+            - name: GF_DATABASE_TYPE
+              value: postgres
+            - name: GF_DATABASE_HOST
+              value: sentinelpay-postgres-rw.sentinelpay.svc.cluster.local:5432
+            - name: GF_DATABASE_NAME
+              value: grafana
+            - name: GF_DATABASE_USER
+              value: sentinelpay
+            - name: GF_DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: sentinelpay-secrets
+                  key: DATASOURCE_PASSWORD
+            - name: GF_DATABASE_SSL_MODE
+              value: disable
           volumeMounts:
             - name: provisioning
               mountPath: /etc/grafana/provisioning
             - name: dashboards
               mountPath: /var/lib/grafana/dashboards
-            - name: data
-              mountPath: /var/lib/grafana
           resources:
             requests:
               cpu: "100m"
@@ -75,21 +94,6 @@ spec:
         - name: dashboards
           configMap:
             name: grafana-dashboards
-        - name: data
-          persistentVolumeClaim:
-            claimName: grafana-data
-
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: grafana-data
-  namespace: sentinelpay
-spec:
-  accessModes: ["ReadWriteOnce"]
-  resources:
-    requests:
-      storage: 2Gi
 
 ---
 apiVersion: v1
