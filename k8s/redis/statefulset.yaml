@@ -22,6 +22,13 @@ data:
     ORDINAL=$(hostname | awk -F'-' '{print $NF}')
     cp /config-template/redis.conf /data/redis.conf
 
+    # Wire password into redis.conf so requirepass and masterauth are both set.
+    # Sentinels also need masterauth when they promote a replica to master.
+    if [ -n "$REDIS_PASSWORD" ]; then
+      echo "requirepass $REDIS_PASSWORD" >> /data/redis.conf
+      echo "masterauth $REDIS_PASSWORD" >> /data/redis.conf
+    fi
+
     if [ "$ORDINAL" = "0" ]; then
       echo "Starting as master (ordinal 0)"
     else
@@ -95,15 +102,23 @@ spec:
               name: redis
           livenessProbe:
             exec:
-              command: ["redis-cli", "ping"]
+              # redis-cli reads REDISCLI_AUTH automatically — no password in args
+              command: ["sh", "-c", "redis-cli --no-auth-warning ping"]
             initialDelaySeconds: 15
             periodSeconds: 10
             failureThreshold: 3
           readinessProbe:
             exec:
-              command: ["redis-cli", "ping"]
+              command: ["sh", "-c", "redis-cli --no-auth-warning ping"]
             initialDelaySeconds: 5
             periodSeconds: 5
+          env:
+            - name: REDISCLI_AUTH
+              valueFrom:
+                secretKeyRef:
+                  name: sentinelpay-secrets
+                  key: REDIS_PASSWORD
+                  optional: true
           resources:
             requests:
               cpu: "100m"

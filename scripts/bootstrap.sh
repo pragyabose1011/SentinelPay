@@ -125,7 +125,8 @@ kubectl apply -f "$REPO_ROOT/k8s/redis/service.yaml"
 kubectl apply -f "$REPO_ROOT/k8s/kafka/kafka.yaml"
 
 log "Waiting for Kafka cluster to be ready (this takes ~2 minutes)..."
-kubectl wait kafka/sentinelpay-kafka \
+# CR name is 'sentinelpay' (matches metadata.name in kafka/kafka.yaml)
+kubectl wait kafka/sentinelpay \
   --for=condition=Ready \
   --timeout=300s \
   -n sentinelpay || log "WARNING: Kafka not ready yet — topics will be created on retry"

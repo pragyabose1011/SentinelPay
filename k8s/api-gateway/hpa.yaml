@@ -11,18 +11,14 @@ spec:
   minReplicas: 2
   maxReplicas: 8
   metrics:
+    # CPU only — JVM heap does not drop quickly after GC so memory utilization
+    # is not a reliable load signal and causes constant scale-up/scale-down cycles.
     - type: Resource
       resource:
         name: cpu
         target:
           type: Utilization
           averageUtilization: 60    # gateway is mostly I/O; keep CPU slack for spikes
-    - type: Resource
-      resource:
-        name: memory
-        target:
-          type: Utilization
-          averageUtilization: 75
   behavior:
     scaleDown:
       stabilizationWindowSeconds: 300

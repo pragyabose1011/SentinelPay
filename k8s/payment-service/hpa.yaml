@@ -11,20 +11,15 @@ spec:
   minReplicas: 2
   maxReplicas: 10
   metrics:
-    # Scale on CPU — each pod starts to feel load above 70%
+    # CPU only — JVM heap does not drop quickly after GC so memory utilization
+    # is not a reliable load signal and causes constant scale-up/scale-down cycles.
+    # Memory limits are still set on the container to trigger OOM before node pressure.
     - type: Resource
       resource:
         name: cpu
         target:
           type: Utilization
           averageUtilization: 70
-    # Scale on memory — avoid OOM before the JVM GC can reclaim
-    - type: Resource
-      resource:
-        name: memory
-        target:
-          type: Utilization
-          averageUtilization: 80
   behavior:
     scaleDown:
       stabilizationWindowSeconds: 300   # wait 5 min before scaling down

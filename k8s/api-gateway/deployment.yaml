@@ -90,22 +90,6 @@ spec:
                 configMapKeyRef:
                   name: sentinelpay-config
                   key: OTEL_EXPORTER_OTLP_ENDPOINT
-            # ConfigMap entries not directly used by gateway but passed via common-env
-            - name: KAFKA_BOOTSTRAP_SERVERS
-              valueFrom:
-                configMapKeyRef:
-                  name: sentinelpay-config
-                  key: KAFKA_BOOTSTRAP_SERVERS
-            - name: DATASOURCE_USERNAME
-              valueFrom:
-                secretKeyRef:
-                  name: sentinelpay-secrets
-                  key: DATASOURCE_USERNAME
-            - name: DATASOURCE_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: sentinelpay-secrets
-                  key: DATASOURCE_PASSWORD
           livenessProbe:
             httpGet:
               path: /actuator/health/liveness
