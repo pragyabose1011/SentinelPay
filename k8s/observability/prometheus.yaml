@@ -13,6 +13,12 @@ data:
       scrape_interval: 15s
       evaluation_interval: 15s
 
+    alerting:
+      alertmanagers:
+        - static_configs:
+            - targets: ['alertmanager:9093']
+          timeout: 10s
+
     rule_files:
       - /etc/prometheus/rules/*.yml
 
@@ -55,6 +61,8 @@ data:
               severity: critical
             annotations:
               summary: "Service {{ $labels.job }} is down"
+              description: "{{ $labels.job }} has had no healthy instances for more than 1 minute. Check pod status with: kubectl get pods -n sentinelpay -l app.kubernetes.io/name={{ $labels.job }}"
+              runbook: "https://github.com/pragyabose1011/SentinelPay/wiki/runbooks/service-down"
 
           - alert: HighPaymentErrorRate
             expr: |
@@ -65,6 +73,8 @@ data:
               severity: warning
             annotations:
               summary: "Payment error rate > 10% for {{ $labels.job }}"
+              description: "{{ $labels.job }} is returning errors for more than 10% of payment attempts over the last 5 minutes. Current rate: {{ $value | humanizePercentage }}. Check application logs and downstream dependencies (Razorpay, Postgres)."
+              runbook: "https://github.com/pragyabose1011/SentinelPay/wiki/runbooks/high-payment-error-rate"
 
           - alert: OutboxEventsParked
             expr: sentinelpay_outbox_parked > 0
@@ -73,6 +83,8 @@ data:
               severity: warning
             annotations:
               summary: "{{ $value }} outbox events are parked (max retries exceeded)"
+              description: "{{ $value }} transactional outbox events have exceeded their retry limit and are now parked. These events will not be retried automatically. Manual intervention is required to replay or discard them."
+              runbook: "https://github.com/pragyabose1011/SentinelPay/wiki/runbooks/outbox-parked"
 
           - alert: HighHttpErrorRate
             expr: |
@@ -83,6 +95,8 @@ data:
               severity: warning
             annotations:
               summary: "HTTP 5xx rate > 5% for {{ $labels.job }}"
+              description: "{{ $labels.job }} is returning HTTP 5xx responses for more than 5% of requests over the last 5 minutes. Current rate: {{ $value | humanizePercentage }}. Review recent deployments, check logs for stack traces, and verify database connectivity."
+              runbook: "https://github.com/pragyabose1011/SentinelPay/wiki/runbooks/high-http-error-rate"
 
 ---
 apiVersion: apps/v1

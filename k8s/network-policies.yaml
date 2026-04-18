@@ -334,6 +334,49 @@ spec:
           protocol: TCP
 
 ---
+# Alertmanager: Prometheus sends alerts; replicas gossip with each other.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-to-alertmanager
+  namespace: sentinelpay
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: alertmanager
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - port: 9093
+          protocol: TCP
+
+---
+# Alertmanager gossip: the 2-replica StatefulSet uses port 9094 for peer-to-peer
+# cluster state sync (deduplication). Both pods must reach each other.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-alertmanager-gossip
+  namespace: sentinelpay
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: alertmanager
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: alertmanager
+      ports:
+        - port: 9094
+          protocol: TCP
+
+---
 # Grafana: accessible from ingress-nginx only.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

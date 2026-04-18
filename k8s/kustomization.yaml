@@ -63,6 +63,7 @@ resources:
   # NOTE: Loki and MinIO are installed via Helm (see scripts/bootstrap.sh).
   #       loki.yaml is kept for reference only and is excluded here.
   - observability/prometheus.yaml
+  - observability/alertmanager.yaml
   - observability/elasticsearch.yaml
   - observability/promtail.yaml
   - observability/jaeger.yaml

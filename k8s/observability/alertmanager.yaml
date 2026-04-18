@@ -1,0 +1,328 @@
+---
+# ---------------------------------------------------------------------------
+# Alertmanager — 2-replica StatefulSet with gossip clustering.
+#
+# Config uses --config.expand-env=true so the alertmanager.yml ConfigMap
+# contains $VAR references that are substituted from env vars at startup.
+# Actual webhook URLs / API keys live in alertmanager-secrets (a Secret),
+# never in the ConfigMap. Add the following to sentinelpay-secrets or
+# create alertmanager-secrets separately before applying.
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-config
+  namespace: sentinelpay
+data:
+  alertmanager.yml: |
+    global:
+      resolve_timeout: 5m
+      # SMTP — reuses the same SendGrid credentials as the application.
+      # Injected from env vars via --config.expand-env=true.
+      smtp_smarthost: "smtp.sendgrid.net:587"
+      smtp_from: "alerts@sentinelpay.com"
+      smtp_auth_username: "apikey"
+      smtp_auth_password: "$ALERTMANAGER_SMTP_PASSWORD"
+      smtp_require_tls: true
+
+    # ---------------------------------------------------------------------------
+    # Templates — loaded from the ConfigMap volume
+    # ---------------------------------------------------------------------------
+    templates:
+      - /etc/alertmanager/templates/*.tmpl
+
+    # ---------------------------------------------------------------------------
+    # Routing tree
+    # critical → PagerDuty (page on-call) + Slack #alerts-critical
+    # warning  → Slack #alerts only
+    # All resolved alerts echoed to the same channels.
+    # ---------------------------------------------------------------------------
+    route:
+      group_by: [alertname, job, severity]
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      receiver: slack-warning
+      routes:
+        - matchers:
+            - severity="critical"
+          receiver: pagerduty-critical
+          continue: true       # also send to Slack after PagerDuty
+        - matchers:
+            - severity="critical"
+          receiver: slack-critical
+          repeat_interval: 1h  # re-notify every hour while firing
+        - matchers:
+            - severity="warning"
+          receiver: slack-warning
+          repeat_interval: 4h
+
+    # ---------------------------------------------------------------------------
+    # Inhibition — suppress downstream noise when a root cause alert fires.
+    # If ServiceDown fires for job X, suppress HighHttpErrorRate for job X.
+    # ---------------------------------------------------------------------------
+    inhibit_rules:
+      - source_matchers:
+          - alertname="ServiceDown"
+        target_matchers:
+          - alertname=~"HighHttpErrorRate|HighPaymentErrorRate"
+        equal: [job]
+
+    receivers:
+      # ---- Slack: warning channel -----------------------------------------------
+      - name: slack-warning
+        slack_configs:
+          - api_url: "$ALERTMANAGER_SLACK_WEBHOOK_URL"
+            channel: "#alerts"
+            send_resolved: true
+            title: '{{ template "slack.sentinelpay.title" . }}'
+            text: '{{ template "slack.sentinelpay.text" . }}'
+            color: '{{ template "slack.sentinelpay.color" . }}'
+            icon_emoji: ":warning:"
+
+      # ---- Slack: critical channel (louder, separate channel) -------------------
+      - name: slack-critical
+        slack_configs:
+          - api_url: "$ALERTMANAGER_SLACK_WEBHOOK_URL"
+            channel: "#alerts-critical"
+            send_resolved: true
+            title: '{{ template "slack.sentinelpay.title" . }}'
+            text: '{{ template "slack.sentinelpay.text" . }}'
+            color: '{{ template "slack.sentinelpay.color" . }}'
+            icon_emoji: ":rotating_light:"
+
+      # ---- PagerDuty: critical only ---------------------------------------------
+      - name: pagerduty-critical
+        pagerduty_configs:
+          - routing_key: "$ALERTMANAGER_PAGERDUTY_ROUTING_KEY"
+            severity: critical
+            description: '{{ template "pagerduty.sentinelpay.description" . }}'
+            details:
+              firing: '{{ template "pagerduty.sentinelpay.details" . }}'
+
+      # ---- Email: weekly digest (low-urgency backup) ----------------------------
+      - name: email-digest
+        email_configs:
+          - to: "$ALERTMANAGER_EMAIL_TO"
+            send_resolved: true
+            headers:
+              Subject: '[SentinelPay] {{ .Status | toUpper }}: {{ .CommonLabels.alertname }}'
+            html: '{{ template "email.sentinelpay.html" . }}'
+
+  # ---------------------------------------------------------------------------
+  # Go templates — richer Slack and PagerDuty message formatting
+  # ---------------------------------------------------------------------------
+  sentinelpay.tmpl: |
+    {{ define "slack.sentinelpay.title" -}}
+    [{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}]
+    {{- " " }}{{ .CommonLabels.alertname }}
+    {{- with .CommonLabels.job }} · {{ . }}{{ end }}
+    {{- end }}
+
+    {{ define "slack.sentinelpay.color" -}}
+    {{- if eq .Status "resolved" }}good
+    {{- else if eq .CommonLabels.severity "critical" }}danger
+    {{- else }}warning
+    {{- end }}
+    {{- end }}
+
+    {{ define "slack.sentinelpay.text" -}}
+    {{ range .Alerts -}}
+    *Alert:* {{ .Annotations.summary }}
+    *Description:* {{ .Annotations.description }}
+    *Severity:* {{ .Labels.severity }}
+    {{- with .Labels.job }}
+    *Service:* {{ . }}{{ end }}
+    *Started:* {{ .StartsAt | since }}
+    {{ if .Annotations.runbook }}*Runbook:* {{ .Annotations.runbook }}{{ end }}
+    {{ end }}
+    {{- end }}
+
+    {{ define "pagerduty.sentinelpay.description" -}}
+    {{ .CommonLabels.alertname }}
+    {{- with .CommonLabels.job }} on {{ . }}{{ end }}
+    {{- end }}
+
+    {{ define "pagerduty.sentinelpay.details" -}}
+    {{ range .Alerts }}{{ .Annotations.summary }} | {{ end }}
+    {{- end }}
+
+    {{ define "email.sentinelpay.html" -}}
+    <h2>SentinelPay Alert: {{ .CommonLabels.alertname }}</h2>
+    <table>
+    {{ range .Alerts }}
+    <tr><td><b>Summary</b></td><td>{{ .Annotations.summary }}</td></tr>
+    <tr><td><b>Description</b></td><td>{{ .Annotations.description }}</td></tr>
+    <tr><td><b>Severity</b></td><td>{{ .Labels.severity }}</td></tr>
+    <tr><td><b>Service</b></td><td>{{ .Labels.job }}</td></tr>
+    <tr><td><b>Started</b></td><td>{{ .StartsAt }}</td></tr>
+    {{ end }}
+    </table>
+    {{- end }}
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: alertmanager
+  namespace: sentinelpay
+  labels:
+    app.kubernetes.io/name: alertmanager
+    app.kubernetes.io/component: observability
+    app.kubernetes.io/part-of: sentinelpay
+spec:
+  serviceName: alertmanager-headless
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: alertmanager
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: alertmanager
+        app.kubernetes.io/component: observability
+        app.kubernetes.io/part-of: sentinelpay
+      annotations:
+        # Force pod restart when config changes
+        checksum/config: "{{ include (print $.Template.BasePath \"/alertmanager.yaml\") . | sha256sum }}"
+    spec:
+      securityContext:
+        fsGroup: 65534
+        runAsUser: 65534
+        runAsNonRoot: true
+      containers:
+        - name: alertmanager
+          image: prom/alertmanager:v0.27.0
+          args:
+            - --config.file=/etc/alertmanager/alertmanager.yml
+            - --storage.path=/alertmanager
+            - --config.expand-env=true          # expands $VAR in alertmanager.yml
+            - --cluster.listen-address=0.0.0.0:9094
+            # Both peers listed so either pod can bootstrap the gossip ring first
+            - --cluster.peer=alertmanager-0.alertmanager-headless.sentinelpay.svc.cluster.local:9094
+            - --cluster.peer=alertmanager-1.alertmanager-headless.sentinelpay.svc.cluster.local:9094
+            - --web.external-url=https://alertmanager.sentinelpay.internal
+          env:
+            - name: ALERTMANAGER_SLACK_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: alertmanager-secrets
+                  key: SLACK_WEBHOOK_URL
+            - name: ALERTMANAGER_PAGERDUTY_ROUTING_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: alertmanager-secrets
+                  key: PAGERDUTY_ROUTING_KEY
+            - name: ALERTMANAGER_SMTP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: sentinelpay-secrets
+                  key: MAIL_PASSWORD
+            - name: ALERTMANAGER_EMAIL_TO
+              valueFrom:
+                secretKeyRef:
+                  name: alertmanager-secrets
+                  key: EMAIL_TO
+          ports:
+            - containerPort: 9093
+              name: http
+            - containerPort: 9094
+              name: cluster
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: 9093
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: 9093
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+          volumeMounts:
+            - name: config
+              mountPath: /etc/alertmanager
+            - name: alertmanager-data
+              mountPath: /alertmanager
+      volumes:
+        - name: config
+          configMap:
+            name: alertmanager-config
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: alertmanager
+              topologyKey: topology.kubernetes.io/zone
+  volumeClaimTemplates:
+    - metadata:
+        name: alertmanager-data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 2Gi
+
+---
+# ClusterIP — Prometheus targets this for alert delivery
+apiVersion: v1
+kind: Service
+metadata:
+  name: alertmanager
+  namespace: sentinelpay
+  labels:
+    app.kubernetes.io/name: alertmanager
+spec:
+  selector:
+    app.kubernetes.io/name: alertmanager
+  ports:
+    - name: http
+      port: 9093
+      targetPort: http
+
+---
+# Headless — gives each pod stable DNS for the gossip cluster peer list
+apiVersion: v1
+kind: Service
+metadata:
+  name: alertmanager-headless
+  namespace: sentinelpay
+  labels:
+    app.kubernetes.io/name: alertmanager
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: alertmanager
+  ports:
+    - name: http
+      port: 9093
+      targetPort: http
+    - name: cluster
+      port: 9094
+      targetPort: cluster
+
+---
+# Secret template — fill in real values, then seal with kubeseal.
+# DO NOT commit with real values.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: alertmanager-secrets
+  namespace: sentinelpay
+type: Opaque
+stringData:
+  # Slack incoming webhook URL — create at api.slack.com/apps
+  SLACK_WEBHOOK_URL: "REPLACE_ME_https://hooks.slack.com/services/..."
+  # PagerDuty Events API v2 integration key
+  PAGERDUTY_ROUTING_KEY: "REPLACE_ME_pagerduty_32char_key"
+  # On-call email address for the digest receiver
+  EMAIL_TO: "REPLACE_ME_oncall@yourcompany.com"
